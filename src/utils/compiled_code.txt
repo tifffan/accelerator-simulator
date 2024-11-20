@@ -1,0 +1,1094 @@
+
+
+# ========== train.py ==========
+
+# train.py
+
+import torch
+import torch.nn.functional as F
+from datasets import GraphDataset
+from src.graph_models.models.graph_networks import (
+    GraphConvolutionNetwork,
+    GraphAttentionNetwork,
+    GraphTransformer,
+    MeshGraphNet
+)
+from src.graph_models.models.graph_autoencoders import (
+    GraphConvolutionalAutoEncoder,
+    GraphAttentionAutoEncoder,
+    GraphTransformerAutoEncoder,
+    MeshGraphAutoEncoder
+)
+from src.graph_models.models.intgnn.models import GNN_TopK
+from src.graph_models.models.multiscale.gnn import (
+    SinglescaleGNN, 
+    MultiscaleGNN, 
+    TopkMultiscaleGNN
+)
+
+from trainers import GraphPredictionTrainer
+from utils import (
+    generate_data_dirs,
+    generate_results_folder_name,
+    save_metadata,
+    get_scheduler,
+    set_random_seed
+)
+from config import parse_args
+from torch.utils.data import Subset
+from torch_geometric.loader import DataLoader
+import numpy as np
+import logging
+import re
+import os
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+def is_autoencoder_model(model_name):
+    """
+    Determines if the given model name corresponds to an autoencoder.
+
+    Args:
+        model_name (str): Name of the model.
+
+    Returns:
+        bool: True if it's an autoencoder model, False otherwise.
+    """
+    return model_name.lower().endswith('-ae') or model_name.lower() in ['multiscale-topk']
+
+if __name__ == "__main__":
+    args = parse_args()
+
+    # Set device
+    if args.cpu_only:
+        device = torch.device('cpu')
+    else:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    logging.info(f"Using device: {device}")
+
+    # Generate data directories
+    initial_graph_dir, final_graph_dir, settings_dir = generate_data_dirs(
+        args.base_data_dir, args.dataset, args.data_keyword
+    )
+    logging.info(f"Initial graph directory: {initial_graph_dir}")
+    logging.info(f"Final graph directory: {final_graph_dir}")
+    logging.info(f"Settings directory: {settings_dir}")
+
+    # Generate results folder name
+    if args.results_folder is not None:
+        results_folder = args.results_folder
+    else:
+        results_folder = generate_results_folder_name(args)
+    logging.info(f"Results will be saved to {results_folder}")
+
+    # Set random seed
+    set_random_seed(args.random_seed)
+
+    # Determine if the model requires edge_attr
+    # Removed 'gcn-ae' and 'gat-ae' as they do not require edge_attr for pooling
+    models_requiring_edge_attr = ['intgnn', 'gtr', 'mgn', 'gtr-ae', 'mgn-ae', 'singlescale', 'multiscale', 'multiscale-topk'] # Adjusted list
+    use_edge_attr = args.model.lower() in models_requiring_edge_attr
+    logging.info(f"Model '{args.model}' requires edge_attr: {use_edge_attr}")
+
+    # Initialize dataset
+    dataset = GraphDataset(
+        initial_graph_dir=initial_graph_dir,
+        final_graph_dir=final_graph_dir,
+        settings_dir=settings_dir,
+        task=args.task,
+        use_edge_attr=use_edge_attr
+    )
+
+    # Subset dataset if ntrain is specified
+    total_dataset_size = len(dataset)
+    if args.ntrain is not None:
+        np.random.seed(args.random_seed)  # For reproducibility
+        indices = np.random.permutation(total_dataset_size)[:args.ntrain]
+        dataset = Subset(dataset, indices)
+        
+    # After initializing the dataset and subset
+    for i in range(min(5, len(dataset))):
+        sample = dataset[i]
+        if hasattr(sample, 'edge_attr') and sample.edge_attr is not None:
+            logging.info(f"Sample {i} edge_attr shape: {sample.edge_attr.shape}")
+            # logging.info(f"Sample {i} edge_attr type: {type(sample.edge_attr)}")
+            # logging.info(f"Sample {i} edge_attr dtype: {sample.edge_attr.dtype}")
+        else:
+            logging.warning(f"Sample {i} is missing edge_attr.")
+
+    # Initialize dataloader
+    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+
+    # Get a sample data for model initialization
+    sample = dataset[0]
+
+    # Model initialization
+    if is_autoencoder_model(args.model):
+        # Autoencoder models: 'gcn-ae', 'gat-ae', 'gtr-ae', 'mgn-ae'
+        # Assert that args.num_layers is even
+        if args.num_layers % 2 != 0:
+            raise ValueError(f"For autoencoder models, 'num_layers' must be an even number. Received: {args.num_layers}")
+
+        # Calculate depth as half of num_layers
+        depth = args.num_layers // 2
+        logging.info(f"Autoencoder selected. Using depth: {depth} (num_layers: {args.num_layers})")
+
+        # Adjust pool_ratios to match depth - 1 (since pooling layers = depth -1)
+        required_pool_ratios = depth - 1
+        current_pool_ratios = len(args.pool_ratios)
+        
+        if required_pool_ratios <= 0:
+            args.pool_ratios = []
+            logging.info(f"No pooling layers required for depth {depth}.")
+        elif current_pool_ratios < required_pool_ratios:
+            # Pad pool_ratios with 1.0 to match required_pool_ratios
+            args.pool_ratios += [1.0] * (required_pool_ratios - current_pool_ratios)
+            logging.warning(f"Pool ratios were padded with 1.0 to match required_pool_ratios: {required_pool_ratios}")
+        elif current_pool_ratios > required_pool_ratios:
+            # Trim pool_ratios to match required_pool_ratios
+            args.pool_ratios = args.pool_ratios[:required_pool_ratios]
+            logging.warning(f"Pool ratios were trimmed to match required_pool_ratios: {required_pool_ratios}")
+
+        # Initialize the corresponding autoencoder model
+        if args.model.lower() == 'gcn-ae':
+            in_channels = sample.x.shape[1]
+            hidden_dim = args.hidden_dim
+            out_channels = sample.y.shape[1]            
+            pool_ratios = args.pool_ratios
+
+            model = GraphConvolutionalAutoEncoder(
+                in_channels=in_channels,
+                hidden_dim=hidden_dim,
+                out_channels=out_channels,
+                depth=depth,
+                pool_ratios=pool_ratios
+            )
+            logging.info("Initialized GraphConvolutionalAutoEncoder.")
+
+        elif args.model.lower() == 'gat-ae':
+            in_channels = sample.x.shape[1]
+            hidden_dim = args.hidden_dim
+            out_channels = sample.y.shape[1]
+            pool_ratios = args.pool_ratios
+            heads = args.gat_heads  # Ensure this argument exists
+
+            model = GraphAttentionAutoEncoder(
+                in_channels=in_channels,
+                hidden_dim=hidden_dim,
+                out_channels=out_channels,
+                depth=depth,
+                pool_ratios=pool_ratios,
+                heads=heads
+            )
+            logging.info("Initialized GraphAttentionAutoEncoder.")
+
+        elif args.model.lower() == 'gtr-ae':
+            in_channels = sample.x.shape[1]
+            hidden_dim = args.hidden_dim
+            out_channels = sample.y.shape[1]
+            pool_ratios = args.pool_ratios
+            num_heads = args.gtr_heads  # Ensure this argument exists
+            concat = args.gtr_concat    # Ensure this argument exists
+            dropout = args.gtr_dropout  # Ensure this argument exists
+            edge_dim = sample.edge_attr.shape[1] if hasattr(sample, 'edge_attr') and sample.edge_attr is not None else None
+
+            model = GraphTransformerAutoEncoder(
+                in_channels=in_channels,
+                hidden_dim=hidden_dim,
+                out_channels=out_channels,
+                depth=depth,
+                pool_ratios=pool_ratios,
+                num_heads=num_heads,
+                concat=concat,
+                dropout=dropout,
+                edge_dim=edge_dim
+            )
+            logging.info("Initialized GraphTransformerAutoEncoder.")
+
+        elif args.model.lower() == 'mgn-ae':
+            node_in_dim = sample.x.shape[1]
+            edge_in_dim = sample.edge_attr.shape[1] if hasattr(sample, 'edge_attr') and sample.edge_attr is not None else 0
+            node_out_dim = sample.y.shape[1]  # Typically, autoencoder output matches input
+            hidden_dim = args.hidden_dim
+            pool_ratios = args.pool_ratios
+
+            model = MeshGraphAutoEncoder(
+                node_in_dim=node_in_dim,
+                edge_in_dim=edge_in_dim,
+                node_out_dim=node_out_dim,
+                hidden_dim=hidden_dim,
+                depth=depth,
+                pool_ratios=pool_ratios
+            )
+            logging.info("Initialized MeshGraphAutoEncoder.")
+            
+        elif args.model.lower() == 'multiscale-topk':
+            # Initialize TopkMultiscaleGNN
+            input_node_channels = sample.x.shape[1]
+            input_edge_channels = sample.edge_attr.shape[1] if hasattr(sample, 'edge_attr') and sample.edge_attr is not None else 0
+            hidden_channels = args.hidden_dim
+            output_node_channels = sample.y.shape[1]
+            n_mlp_hidden_layers = args.multiscale_n_mlp_hidden_layers
+            n_mmp_layers = args.multiscale_n_mmp_layers
+            n_messagePassing_layers = args.multiscale_n_message_passing_layers
+            max_level_mmp = args.num_layers // 2 - 1  # n_levels = max_level + 1
+            max_level_topk = args.num_layers // 2 - 1
+            pool_ratios = args.pool_ratios
+
+            # Compute l_char (characteristic length scale)
+            edge_index = sample.edge_index
+            pos = sample.pos
+            edge_lengths = torch.norm(pos[edge_index[0]] - pos[edge_index[1]], dim=1)
+            l_char = edge_lengths.mean().item()
+            logging.info(f"Computed l_char (characteristic length scale): {l_char}")
+
+            name = 'topk_multiscale_gnn'
+
+            # Initialize model
+            model = TopkMultiscaleGNN(
+                input_node_channels=input_node_channels,
+                input_edge_channels=input_edge_channels,
+                hidden_channels=hidden_channels,
+                output_node_channels=output_node_channels,
+                n_mlp_hidden_layers=n_mlp_hidden_layers,
+                n_mmp_layers=n_mmp_layers,
+                n_messagePassing_layers=n_messagePassing_layers,
+                max_level_mmp=max_level_mmp,
+                max_level_topk=max_level_topk,
+                # rf_topk=rf_topk,
+                pool_ratios=pool_ratios,
+                l_char=l_char,
+                name=name
+            )
+            logging.info("Initialized TopkMultiscaleGNN model.")
+
+
+        else:
+            raise ValueError(f"Unknown autoencoder model {args.model}")
+
+    else:
+        # Non-autoencoder models: 'intgnn', 'gcn', 'gat', 'gtr', 'mgn'
+        if args.model.lower() == 'intgnn':
+            # Model parameters specific to GNN_TopK
+            in_channels_node = sample.x.shape[1]
+            in_channels_edge = sample.edge_attr.shape[1] if hasattr(sample, 'edge_attr') and sample.edge_attr is not None else 0
+            hidden_channels = args.hidden_dim
+            out_channels = sample.y.shape[1]
+            n_mlp_encode = 3
+            n_mlp_mp = 2
+            n_mp_down_topk = [1, 1]
+            n_mp_up_topk = [1, 1]
+            pool_ratios = args.pool_ratios
+            n_mp_down_enc = [4]
+            n_mp_up_enc = []
+            lengthscales_enc = []
+            n_mp_down_dec = [2, 2, 4]
+            n_mp_up_dec = [2, 2]
+            lengthscales_dec = [0.5, 1.0]
+            interp = 'learned'
+            act = F.elu
+            param_sharing = False
+
+            # Create bounding box if needed
+            bounding_box = []
+            if len(lengthscales_dec) > 0:
+                x_lo = sample.pos[:, 0].min() - lengthscales_dec[0] / 2
+                x_hi = sample.pos[:, 0].max() + lengthscales_dec[0] / 2
+                y_lo = sample.pos[:, 1].min() - lengthscales_dec[0] / 2
+                y_hi = sample.pos[:, 1].max() + lengthscales_dec[0] / 2
+                z_lo = sample.pos[:, 2].min() - lengthscales_dec[0] / 2
+                z_hi = sample.pos[:, 2].max() + lengthscales_dec[0] / 2
+                bounding_box = [
+                    x_lo.item(), x_hi.item(),
+                    y_lo.item(), y_hi.item(),
+                    z_lo.item(), z_hi.item()
+                ]
+
+            # Initialize GNN_TopK model
+            model = GNN_TopK(
+                in_channels_node,
+                in_channels_edge,
+                hidden_channels,
+                out_channels,
+                n_mlp_encode,
+                n_mlp_mp,
+                n_mp_down_topk,
+                n_mp_up_topk,
+                pool_ratios,
+                n_mp_down_enc,
+                n_mp_up_enc,
+                n_mp_down_dec,
+                n_mp_up_dec,
+                lengthscales_enc,
+                lengthscales_dec,
+                bounding_box,
+                interp,
+                act,
+                param_sharing,
+                name='gnn_topk'
+            )
+            logging.info("Initialized GNN_TopK model.")
+        
+        elif args.model.lower() == 'singlescale':
+            # Initialize SinglescaleGNN
+            input_node_channels = sample.x.shape[1]
+            input_edge_channels = sample.edge_attr.shape[1] if hasattr(sample, 'edge_attr') and sample.edge_attr is not None else 0
+            hidden_channels = args.hidden_dim
+            output_node_channels = sample.y.shape[1]
+            n_mlp_hidden_layers = 0  # Set based on MeshGraphNet
+            n_messagePassing_layers = args.num_layers
+
+            name = 'singlescale_gnn'
+
+            # Initialize model
+            model = SinglescaleGNN(
+                input_node_channels=input_node_channels,
+                input_edge_channels=input_edge_channels,
+                hidden_channels=hidden_channels,
+                output_node_channels=output_node_channels,
+                n_mlp_hidden_layers=n_mlp_hidden_layers,
+                n_messagePassing_layers=n_messagePassing_layers,
+                name=name
+            )
+            logging.info("Initialized SinglescaleGNN model.")
+            
+        elif args.model.lower() == 'multiscale':
+            # Initialize MultiscaleGNN
+            input_node_channels = sample.x.shape[1]
+            input_edge_channels = sample.edge_attr.shape[1] if hasattr(sample, 'edge_attr') and sample.edge_attr is not None else 0
+            hidden_channels = args.hidden_dim
+            output_node_channels = sample.y.shape[1]
+            n_mlp_hidden_layers = args.multiscale_n_mlp_hidden_layers
+            n_mmp_layers = args.multiscale_n_mmp_layers
+            n_messagePassing_layers = args.multiscale_n_message_passing_layers
+            max_level = args.num_layers // 2 - 1  # n_levels = max_level + 1
+
+            # Compute l_char (characteristic length scale)
+            edge_index = sample.edge_index
+            pos = sample.pos
+            edge_lengths = torch.norm(pos[edge_index[0]] - pos[edge_index[1]], dim=1)
+            l_char = edge_lengths.mean().item()
+            logging.info(f"Computed l_char (characteristic length scale): {l_char}")
+
+            name = 'multiscale_gnn'
+
+            # Initialize model
+            model = MultiscaleGNN(
+                input_node_channels=input_node_channels,
+                input_edge_channels=input_edge_channels,
+                hidden_channels=hidden_channels,
+                output_node_channels=output_node_channels,
+                n_mlp_hidden_layers=n_mlp_hidden_layers,
+                n_mmp_layers=n_mmp_layers,
+                n_messagePassing_layers=n_messagePassing_layers,
+                max_level=max_level,
+                l_char=l_char,
+                name=name
+            )
+            logging.info("Initialized MultiscaleGNN model.")
+
+        elif args.model.lower() == 'gcn':
+            # Ensure pool_ratios length matches num_layers - 2
+            required_pool_ratios = args.num_layers - 2
+            current_pool_ratios = len(args.pool_ratios)
+            
+            if required_pool_ratios <= 0:
+                args.pool_ratios = []
+                logging.info(f"No pooling layers required for num_layers {args.num_layers}.")
+            elif current_pool_ratios < required_pool_ratios:
+                args.pool_ratios += [1.0] * (required_pool_ratios - current_pool_ratios)
+                logging.warning(f"Pool ratios were padded with 1.0 to match required_pool_ratios: {required_pool_ratios}")
+            elif current_pool_ratios > required_pool_ratios:
+                args.pool_ratios = args.pool_ratios[:required_pool_ratios]
+                logging.warning(f"Pool ratios were trimmed to match required_pool_ratios: {required_pool_ratios}")
+
+            # Model parameters specific to GraphConvolutionNetwork
+            in_channels = sample.x.shape[1]
+            hidden_dim = args.hidden_dim
+            out_channels = sample.y.shape[1]
+            num_layers = args.num_layers
+            pool_ratios = args.pool_ratios
+
+            # Initialize GraphConvolutionNetwork model
+            model = GraphConvolutionNetwork(
+                in_channels=in_channels,
+                hidden_dim=hidden_dim,
+                out_channels=out_channels,
+                num_layers=num_layers,
+                pool_ratios=pool_ratios,
+            )
+            logging.info("Initialized GraphConvolutionNetwork model.")
+
+        elif args.model.lower() == 'gat':
+            # Ensure pool_ratios length matches num_layers - 2 (since we don't pool after the last layer)
+            required_pool_ratios = args.num_layers - 2
+            current_pool_ratios = len(args.pool_ratios)
+            
+            if required_pool_ratios <= 0:
+                args.pool_ratios = []
+                logging.info(f"No pooling layers required for num_layers {args.num_layers}.")
+            elif current_pool_ratios < required_pool_ratios:
+                # Pad pool_ratios with 1.0 to match required_pool_ratios
+                args.pool_ratios += [1.0] * (required_pool_ratios - current_pool_ratios)
+                logging.warning(f"Pool ratios were padded with 1.0 to match required_pool_ratios: {required_pool_ratios}")
+            elif current_pool_ratios > required_pool_ratios:
+                # Trim pool_ratios to match required_pool_ratios
+                args.pool_ratios = args.pool_ratios[:required_pool_ratios]
+                logging.warning(f"Pool ratios were trimmed to match required_pool_ratios: {required_pool_ratios}")
+
+            # Model parameters specific to GraphAttentionNetwork
+            in_channels = sample.x.shape[1]
+            hidden_dim = args.hidden_dim
+            out_channels = sample.y.shape[1]
+            num_layers = args.num_layers
+            pool_ratios = args.pool_ratios
+            heads = args.gat_heads  # Ensure this argument exists
+
+            # Initialize GraphAttentionNetwork model
+            model = GraphAttentionNetwork(
+                in_channels=in_channels,
+                hidden_dim=hidden_dim,
+                out_channels=out_channels,
+                num_layers=num_layers,
+                pool_ratios=pool_ratios,
+                heads=heads,
+            )
+            logging.info("Initialized GraphAttentionNetwork model.")
+
+        elif args.model.lower() == 'gtr':
+            # Model parameters specific to GraphTransformer
+            in_channels = sample.x.shape[1]
+            hidden_dim = args.hidden_dim
+            out_channels = sample.y.shape[1]
+            num_layers = args.num_layers
+            pool_ratios = args.pool_ratios
+            num_heads = args.gtr_heads
+            concat = args.gtr_concat
+            dropout = args.gtr_dropout
+            edge_dim = sample.edge_attr.shape[1] if hasattr(sample, 'edge_attr') and sample.edge_attr is not None else None
+
+            # Adjust pool_ratios to match num_layers - 2
+            required_pool_ratios = num_layers - 2
+            current_pool_ratios = len(pool_ratios)
+            
+            if required_pool_ratios <= 0:
+                pool_ratios = []
+                logging.info(f"No pooling layers required for num_layers {num_layers}.")
+            elif current_pool_ratios < required_pool_ratios:
+                pool_ratios += [1.0] * (required_pool_ratios - current_pool_ratios)
+                logging.warning(f"Pool ratios were padded with 1.0 to match required_pool_ratios: {required_pool_ratios}")
+            elif current_pool_ratios > required_pool_ratios:
+                pool_ratios = pool_ratios[:required_pool_ratios]
+                logging.warning(f"Pool ratios were trimmed to match required_pool_ratios: {required_pool_ratios}")
+
+            # Initialize GraphTransformer model
+            model = GraphTransformer(
+                in_channels=in_channels,
+                hidden_dim=hidden_dim,
+                out_channels=out_channels,
+                num_layers=num_layers,
+                pool_ratios=pool_ratios,
+                num_heads=num_heads,
+                concat=concat,
+                dropout=dropout,
+                edge_dim=edge_dim,
+            )
+            logging.info("Initialized GraphTransformer model.")
+
+        elif args.model.lower() == 'mgn':
+            # Model parameters specific to MeshGraphNet
+            node_in_dim = sample.x.shape[1]
+            edge_in_dim = sample.edge_attr.shape[1] if hasattr(sample, 'edge_attr') and sample.edge_attr is not None else 0
+            node_out_dim = sample.y.shape[1]
+            hidden_dim = args.hidden_dim
+            num_layers = args.num_layers
+
+            # Initialize MeshGraphNet model
+            model = MeshGraphNet(
+                node_in_dim=node_in_dim,
+                edge_in_dim=edge_in_dim,
+                node_out_dim=node_out_dim,
+                hidden_dim=hidden_dim,
+                num_layers=num_layers
+            )
+            logging.info("Initialized MeshGraphNet model.")
+
+        else:
+            raise ValueError(f"Unknown model {args.model}")
+
+    model.to(device)
+    logging.info(f"Model moved to {device}.")
+
+    # Optimizer
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    logging.info(f"Initialized Adam optimizer with learning rate: {args.lr}")
+
+    # Scheduler
+    scheduler = get_scheduler(args, optimizer)
+    if scheduler:
+        logging.info("Initialized learning rate scheduler.")
+
+    # Handle checkpoint
+    if args.checkpoint is None and args.checkpoint_epoch is not None:
+        results_folder_ = re.sub(r'ep\d+', f'ep{args.checkpoint_epoch}', results_folder)
+        checkpoint_path = os.path.join(results_folder_, 'checkpoints', f'model-{args.checkpoint_epoch - 1}.pth')
+        if not os.path.exists(checkpoint_path):
+            logging.error(f"Checkpoint for epoch {args.checkpoint_epoch} not found at {checkpoint_path}. Exiting.")
+            exit(1)
+        else:
+            args.checkpoint = checkpoint_path
+            logging.info(f"Checkpoint set to: {args.checkpoint}")
+
+    if args.checkpoint is not None and args.checkpoint_epoch is None:
+        checkpoint_path = args.checkpoint
+        if not os.path.exists(checkpoint_path):
+            logging.error(f"Checkpoint not found at {checkpoint_path}. Exiting.")
+            exit(1)  
+        else:
+            logging.info(f"Checkpoint set to: {checkpoint_path}")
+
+    # Define the loss function based solely on node feature reconstruction
+    criterion = torch.nn.MSELoss()
+
+    # Initialize trainer with the custom loss function
+    trainer = GraphPredictionTrainer(
+        model=model,
+        dataloader=dataloader,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        nepochs=args.nepochs,
+        save_checkpoint_every=args.save_checkpoint_every,
+        results_folder=results_folder,
+        checkpoint=args.checkpoint,
+        random_seed=args.random_seed,
+        device=device,
+        verbose=args.verbose,
+        criterion=criterion  # Pass the custom loss function here
+    )
+    logging.info("Initialized GraphPredictionTrainer with custom loss function.")
+    
+    # Save metadata
+    save_metadata(args, model, results_folder)
+
+    # Run train or evaluate
+    if args.mode == 'train':
+        trainer.train()
+    else:
+        # Implement evaluation if needed
+        logging.info("Evaluation mode is not implemented yet.")
+        pass
+
+
+# ========== datasets.py ==========
+
+# datasets.py
+
+import os
+import torch
+from torch.utils.data import Dataset
+import logging
+from torch_geometric.data import Data  # Import Data class
+
+# Add torch_geometric.data.Data to allowed classes for torch.load with weights_only=True
+# torch.serialization.add_allowed_classes([Data])
+
+
+class GraphDataset(Dataset):
+    def __init__(self, initial_graph_dir, final_graph_dir, settings_dir, task='predict_n6d', use_edge_attr=False):
+        """
+        Initializes the GraphDataset.
+
+        Args:
+            initial_graph_dir (str): Directory containing initial graph .pt files.
+            final_graph_dir (str): Directory containing final graph .pt files.
+            settings_dir (str): Directory containing settings .pt files.
+            task (str, optional): Prediction task. One of ['predict_n6d', 'predict_n4d', 'predict_n2d'].
+                                  Defaults to 'predict_n6d'.
+            use_edge_attr (bool, optional): Flag indicating whether to compute edge attributes.
+                                            Defaults to False.
+        """
+        self.initial_graph_dir = initial_graph_dir
+        self.final_graph_dir = final_graph_dir
+        self.settings_dir = settings_dir
+        self.task = task
+        self.use_edge_attr = use_edge_attr
+
+        # Get list of graph files and ensure they correspond
+        self.initial_files = sorted([f for f in os.listdir(initial_graph_dir) if f.endswith('.pt')])
+        self.final_files = sorted([f for f in os.listdir(final_graph_dir) if f.endswith('.pt')])
+        self.settings_files = sorted([f for f in os.listdir(settings_dir) if f.endswith('.pt')])
+
+        assert len(self.initial_files) == len(self.final_files) == len(self.settings_files), \
+            "Mismatch in number of initial graphs, final graphs, and settings files."
+
+        logging.info(f"Initialized GraphDataset with {len(self)} samples. Use edge_attr: {self.use_edge_attr}")
+
+    def __len__(self):
+        return len(self.initial_files)
+
+    def __getitem__(self, idx):
+        """
+        Retrieves the graph data at the specified index.
+
+        Args:
+            idx (int): Index of the data sample.
+
+        Returns:
+            torch_geometric.data.Data: Graph data object containing node features, edge indices,
+                                       edge attributes (if required), target labels, positions,
+                                       and batch information.
+        """
+        # Load initial graph
+        initial_filepath = os.path.join(self.initial_graph_dir, self.initial_files[idx])
+        # initial_data = torch.load(initial_filepath, weights_only=True)
+        initial_data = torch.load(initial_filepath, weights_only=False)
+
+        # Load final graph
+        final_filepath = os.path.join(self.final_graph_dir, self.final_files[idx])
+        # final_data = torch.load(final_filepath, weights_only=True)
+        final_data = torch.load(final_filepath, weights_only=False)
+
+        # Load settings
+        settings_filepath = os.path.join(self.settings_dir, self.settings_files[idx])
+        # settings = torch.load(settings_filepath, weights_only=True)  # Expected shape: [num_settings]
+        settings = torch.load(settings_filepath, weights_only=False)
+
+        # Concatenate settings to each node's feature in the initial graph
+        num_nodes = initial_data.num_nodes
+        settings_expanded = settings.unsqueeze(0).expand(num_nodes, -1)  # Shape: [num_nodes, num_settings]
+        initial_data.x = torch.cat([initial_data.x, settings_expanded], dim=1)  # New shape: [num_nodes, original_x_dim + num_settings]
+
+        # Extract positions (assuming the first 3 features are x, y, z coordinates)
+        initial_data.pos = initial_data.x[:, :3]  # Shape: [num_nodes, 3]
+
+        # Compute edge attributes manually if required
+        if self.use_edge_attr:
+            if hasattr(initial_data, 'edge_index') and initial_data.edge_index is not None:
+                row, col = initial_data.edge_index
+                pos_diff = initial_data.pos[row] - initial_data.pos[col]  # Shape: [num_edges, 3]
+                distance = torch.norm(pos_diff, p=2, dim=1, keepdim=True)  # Shape: [num_edges, 1]
+                edge_attr = torch.cat([pos_diff, distance], dim=1)  # Shape: [num_edges, 4]
+
+                # Standardize edge attributes
+                eps = 1e-10
+                edge_attr_mean = edge_attr.mean(dim=0, keepdim=True)
+                edge_attr_std = edge_attr.std(dim=0, keepdim=True)
+                edge_attr = (edge_attr - edge_attr_mean) / (edge_attr_std + eps)  # Shape: [num_edges, 4]
+
+                initial_data.edge_attr = edge_attr  # Assign the standardized edge attributes
+                logging.debug(f"Sample {idx}: Computed and standardized edge_attr with shape {initial_data.edge_attr.shape}")
+            else:
+                raise ValueError(f"Sample {idx} is missing 'edge_index', cannot compute 'edge_attr'.")
+        else:
+            initial_data.edge_attr = None  # Explicitly set to None if not used
+            logging.debug(f"Sample {idx}: edge_attr not computed (use_edge_attr=False)")
+
+        # Assign target node features based on the task
+        if self.task == 'predict_n6d':
+            initial_data.y = final_data.x[:, :6]  # Shape: [num_nodes, 6]
+        elif self.task == 'predict_n4d':
+            initial_data.y = final_data.x[:, :4]  # Shape: [num_nodes, 4]
+        elif self.task == 'predict_n2d':
+            initial_data.y = final_data.x[:, :2]  # Shape: [num_nodes, 2]
+        else:
+            raise ValueError(f"Unknown task: {self.task}")
+
+        # Include 'batch' attribute if not present (useful for batching in PyTorch Geometric)
+        if not hasattr(initial_data, 'batch') or initial_data.batch is None:
+            initial_data.batch = torch.zeros(initial_data.num_nodes, dtype=torch.long)
+            logging.debug(f"Sample {idx}: Initialized 'batch' attribute with zeros.")
+
+        return initial_data
+
+
+# ========== config.py ==========
+
+# config.py
+
+import argparse
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train and evaluate graph-based models.")
+
+    # Common arguments
+    parser.add_argument('--model', type=str, required=True, choices=['intgnn', 'gcn', 'gat', 'gtr', 'mgn', 'gcn-ae', 'gat-ae', 'gtr-ae', 'mgn-ae', 'multiscale', 'multiscale-topk'], help="Model to train.")
+    parser.add_argument('--data_keyword', type=str, required=True, help="Common keyword to infer data directories")
+    parser.add_argument('--base_data_dir', type=str, default="/sdf/data/ad/ard/u/tiffan/data/",
+                        help="Base directory where the data is stored")
+    parser.add_argument('--base_results_dir', type=str, default="/sdf/data/ad/ard/u/tiffan/results/",
+                        help="Base directory where the results are stored.")
+
+    parser.add_argument('--dataset', type=str, required=True, help="Dataset identifier")
+    parser.add_argument('--task', type=str, required=True, choices=['predict_n6d', 'predict_n4d', 'predict_n2d'],
+                        help="Task to perform")
+    parser.add_argument('--ntrain', type=int, default=None, help="Number of training examples to use")
+    parser.add_argument('--nepochs', type=int, default=100, help="Number of training epochs")
+    parser.add_argument('--save_checkpoint_every', type=int, default=10, help="Save checkpoint every N epochs")
+    parser.add_argument('--lr', type=float, default=1e-4, help="Learning rate for training")
+    parser.add_argument('--batch_size', type=int, default=8, help="Batch size for training")
+    parser.add_argument('--hidden_dim', type=int, default=64, help="Hidden layer dimension size")
+    parser.add_argument('--num_layers', type=int, default=3, help="Number of layers in the model")
+    parser.add_argument('--pool_ratios', type=float, nargs='+', default=[1.0], help="Pooling ratios for TopKPooling layers")
+    parser.add_argument('--mode', type=str, default='train', choices=['train', 'evaluate'], help="Mode to run")
+    parser.add_argument('--checkpoint', type=str, default=None, help="Path to a checkpoint to resume training")
+    parser.add_argument('--checkpoint_epoch', type=int, default=None, help="Epoch of the checkpoint to load")
+    parser.add_argument('--results_folder', type=str, default=None, help="Directory to save results and checkpoints")
+    parser.add_argument('--random_seed', type=int, default=63, help="Random seed for reproducibility")
+    parser.add_argument('--cpu_only', action='store_true', help="Force the script to use CPU even if GPU is available")
+    parser.add_argument('--verbose', action='store_true', help="Display progress bar while training")
+
+    # Learning Rate Scheduler Arguments
+    parser.add_argument('--lr_scheduler', type=str, choices=['none', 'exp', 'lin'], default='none',
+                        help="Learning rate scheduler type: 'none', 'exp', or 'lin'")
+    # Exponential Scheduler Parameters
+    parser.add_argument('--exp_decay_rate', type=float, default=0.001, help="Decay rate for exponential scheduler")
+    parser.add_argument('--exp_start_epoch', type=int, default=0, help="Start epoch for exponential scheduler")
+    # Linear Scheduler Parameters
+    parser.add_argument('--lin_start_epoch', type=int, default=100, help="Start epoch for linear scheduler")
+    parser.add_argument('--lin_end_epoch', type=int, default=1000, help="End epoch for linear scheduler")
+    parser.add_argument('--lin_final_lr', type=float, default=1e-5, help="Final learning rate for linear scheduler")
+    
+    # GAT-specific arguments
+    parser.add_argument('--gat_heads', type=int, default=1, help="Number of attention heads for GAT layers")
+
+    # Graph Transformer-specific arguments
+    parser.add_argument('--gtr_heads', type=int, default=4, help="Number of attention heads for TransformerConv layers")
+    parser.add_argument('--gtr_concat', type=bool, default=True, help="Whether to concatenate or average attention head outputs")
+    parser.add_argument('--gtr_dropout', type=float, default=0.0, help="Dropout rate for attention coefficients")
+    
+    # Multiscale-specific arguments
+    parser.add_argument('--multiscale_n_mlp_hidden_layers', type=int, default=2,
+                        help='Number of hidden layers in MLPs for multiscale models.')
+    parser.add_argument('--multiscale_n_mmp_layers', type=int, default=4,
+                        help='Number of Multiscale Message Passing layers for multiscale models.')
+    parser.add_argument('--multiscale_n_message_passing_layers', type=int, default=2,
+                        help='Number of Message Passing layers within each Multiscale Message Passing layer for multiscale models.')
+
+    return parser.parse_args()
+
+
+# ========== utils.py ==========
+
+# utils.py
+
+from datetime import datetime
+import os
+import numpy as np
+import logging
+import torch
+import random
+
+def generate_data_dirs(base_data_dir, dataset, data_keyword):
+    initial_graph_dir = os.path.join(base_data_dir, f'{dataset}/initial_{data_keyword}_graphs')
+    final_graph_dir = os.path.join(base_data_dir, f'{dataset}/final_{data_keyword}_graphs')
+    settings_dir = os.path.join(base_data_dir, f'{dataset}/settings_{data_keyword}_graphs')
+    return initial_graph_dir, final_graph_dir, settings_dir
+
+def generate_results_folder_name(args):
+    # Base directory for results
+    base_results_dir = args.base_results_dir
+
+    # Incorporate model name
+    base_results_dir = os.path.join(base_results_dir, args.model)
+    
+    # Incorporate dataset name
+    base_results_dir = os.path.join(base_results_dir, args.dataset)
+
+    # Task-specific subfolder
+    base_results_dir = os.path.join(base_results_dir, args.task)
+
+    # Extract important arguments
+    parts = []
+    parts.append(f"{args.data_keyword}")
+    parts.append(f"r{args.random_seed}")
+    parts.append(f"nt{args.ntrain if args.ntrain is not None else 'all'}")
+    parts.append(f"b{args.batch_size}")
+    parts.append(f"lr{args.lr}")
+    parts.append(f"h{args.hidden_dim}")
+    parts.append(f"ly{args.num_layers}")
+    parts.append(f"pr{'_'.join(map(lambda x: f'{x:.2f}', args.pool_ratios))}")
+    parts.append(f"ep{args.nepochs}")
+
+    # Append scheduler info if used
+    if args.lr_scheduler == 'exp':
+        parts.append(f"sch_exp_{args.exp_decay_rate}_{args.exp_start_epoch}")
+    elif args.lr_scheduler == 'lin':
+        parts.append(f"sch_lin_{args.lin_start_epoch}_{args.lin_end_epoch}_{args.lin_final_lr}")
+
+    # Model-specific arguments
+    if args.model == 'gcn' or args.model == 'gcn-ae':
+        pass
+    elif args.model == 'gat' or args.model == 'gat-ae':
+        parts.append(f"heads{args.gat_heads}")
+    elif args.model == 'gtr' or args.model == 'gtr-ae':
+        parts.append(f"heads{args.gtr_heads}")
+        parts.append(f"concat{args.gtr_concat}")
+        parts.append(f"dropout{args.gtr_dropout}")
+    elif args.model == 'mgn' or args.model == 'mgn-ae':
+        pass
+    elif args.model == 'intgnn':
+        pass  # TODO: Append any intgnn-specific parameters
+    elif args.model == 'singlescale':
+        pass
+    elif args.model == 'multiscale' or args.model == 'multiscale-topk':
+        parts.append(f"mlph{args.multiscale_n_mlp_hidden_layers}")
+        parts.append(f"mmply{args.multiscale_n_mmp_layers}")
+        parts.append(f"mply{args.multiscale_n_message_passing_layers}")
+
+    # Combine parts to form the folder name
+    folder_name = '_'.join(map(str, parts))
+    results_folder = os.path.join(base_results_dir, folder_name)
+    return results_folder
+
+def save_metadata(args, model, results_folder):
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    metadata_path = os.path.join(results_folder, f'metadata_{timestamp}.txt')
+    os.makedirs(results_folder, exist_ok=True)
+    with open(metadata_path, 'w') as f:
+        f.write("=== Model Hyperparameters ===\n")
+        hyperparams = vars(args)
+        for key, value in hyperparams.items():
+            if isinstance(value, list):
+                value = ', '.join(map(str, value))
+            f.write(f"{key}: {value}\n")
+
+        f.write("\n=== Model Architecture ===\n")
+        f.write(str(model))
+
+    logging.info(f"Metadata saved to {metadata_path}")
+
+def exponential_lr_scheduler(epoch, decay_rate=0.001, decay_start_epoch=0):
+    if epoch < decay_start_epoch:
+        return 1.0
+    else:
+        return np.exp(-decay_rate * (epoch - decay_start_epoch))
+
+def linear_lr_scheduler(epoch, start_epoch=10, end_epoch=100, initial_lr=1e-4, final_lr=1e-6):
+    if epoch < start_epoch:
+        return 1.0
+    elif start_epoch <= epoch < end_epoch:
+        proportion = (epoch - start_epoch) / (end_epoch - start_epoch)
+        lr = initial_lr + proportion * (final_lr - initial_lr)
+        return lr / initial_lr
+    else:
+        return final_lr / initial_lr
+
+def get_scheduler(args, optimizer):
+    if args.lr_scheduler == 'exp':
+        scheduler_func = lambda epoch: exponential_lr_scheduler(
+            epoch,
+            decay_rate=args.exp_decay_rate,
+            decay_start_epoch=args.exp_start_epoch
+        )
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=scheduler_func)
+    elif args.lr_scheduler == 'lin':
+        scheduler_func = lambda epoch: linear_lr_scheduler(
+            epoch,
+            start_epoch=args.lin_start_epoch,
+            end_epoch=args.lin_end_epoch,
+            initial_lr=args.lr,
+            final_lr=args.lin_final_lr
+        )
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=scheduler_func)
+    else:
+        scheduler = None
+    return scheduler
+
+def set_random_seed(seed):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+# ========== trainers.py ==========
+
+# trainers.py
+
+import torch
+import torch.optim as optim
+from tqdm import tqdm
+import logging
+import matplotlib.pyplot as plt
+from pathlib import Path
+from src.graph_models.models.multiscale.gnn import SinglescaleGNN, MultiscaleGNN, TopkMultiscaleGNN
+from src.graph_models.models.intgnn.models import GNN_TopK
+from src.graph_models.models.graph_networks import MeshGraphNet, GraphTransformer
+from src.graph_models.models.graph_autoencoders import MeshGraphAutoEncoder, GraphTransformerAutoEncoder
+
+class BaseTrainer:
+    def __init__(self, model, dataloader, optimizer, scheduler=None, device='cpu', **kwargs):
+        self.model = model.to(device)
+        self.dataloader = dataloader
+        self.optimizer = optimizer
+        self.scheduler = scheduler
+        self.device = device
+        self.start_epoch = 0
+        self.nepochs = kwargs.get('nepochs', 100)
+        self.save_checkpoint_every = kwargs.get('save_checkpoint_every', 10)
+        self.results_folder = Path(kwargs.get('results_folder', './results'))
+        self.results_folder.mkdir(parents=True, exist_ok=True)
+        self.loss_history = []
+        self.verbose = kwargs.get('verbose', False)
+
+        # Create 'checkpoints' subfolder under results_folder
+        self.checkpoints_folder = self.results_folder / 'checkpoints'
+        self.checkpoints_folder.mkdir(parents=True, exist_ok=True)
+
+        self.random_seed = kwargs.get('random_seed', 42)
+
+        # Checkpoint
+        self.checkpoint = kwargs.get('checkpoint', None)
+        if self.checkpoint:
+            self.load_checkpoint(self.checkpoint)
+
+    def train(self):
+        logging.info("Starting training...")
+        for epoch in range(self.start_epoch, self.nepochs):
+            self.model.train()
+            total_loss = 0
+            if self.verbose:
+                progress_bar = tqdm(self.dataloader, desc=f"Epoch {epoch+1}/{self.nepochs}")
+            else:
+                progress_bar = self.dataloader
+            for data in progress_bar:
+                data = data.to(self.device)
+                self.optimizer.zero_grad()
+                loss = self.train_step(data)
+                loss.backward()
+                self.optimizer.step()
+                total_loss += loss.item()
+                if self.verbose:
+                    progress_bar.set_postfix(loss=total_loss / len(self.dataloader))
+
+            # Scheduler step
+            if self.scheduler:
+                self.scheduler.step()
+                current_lr = self.optimizer.param_groups[0]['lr']
+                logging.info(f"Epoch {epoch+1}: Learning rate adjusted to {current_lr}")
+
+            # Save loss history
+            avg_loss = total_loss / len(self.dataloader)
+            self.loss_history.append(avg_loss)
+            logging.info(f'Epoch {epoch+1}/{self.nepochs}, Loss: {avg_loss:.4e}')
+
+            # Save checkpoint
+            if (epoch + 1) % self.save_checkpoint_every == 0 or (epoch + 1) == self.nepochs:
+                self.save_checkpoint(epoch)
+
+        # Plot loss convergence
+        self.plot_loss_convergence()
+        logging.info("Training complete!")
+
+    def train_step(self, data):
+        raise NotImplementedError("Subclasses should implement this method.")
+
+    def save_checkpoint(self, epoch):
+        checkpoint_path = self.checkpoints_folder / f'model-{epoch}.pth'
+        torch.save({
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'scheduler_state_dict': self.scheduler.state_dict() if self.scheduler else None,
+            'epoch': epoch + 1,  # Save the next epoch to resume from
+            'random_seed': self.random_seed,
+            'loss_history': self.loss_history,
+        }, checkpoint_path)
+        logging.info(f"Model checkpoint saved to {checkpoint_path}")
+
+    def load_checkpoint(self, checkpoint_path):
+        logging.info(f"Loading checkpoint from {checkpoint_path}")
+        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        if self.scheduler and 'scheduler_state_dict' in checkpoint and checkpoint['scheduler_state_dict']:
+            self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        self.start_epoch = checkpoint['epoch']
+        if 'random_seed' in checkpoint:
+            self.random_seed = checkpoint['random_seed']
+            logging.info(f"Using random seed from checkpoint: {self.random_seed}")
+        if 'loss_history' in checkpoint:
+            self.loss_history = checkpoint['loss_history']
+        logging.info(f"Resumed training from epoch {self.start_epoch}")
+
+    def plot_loss_convergence(self):
+        plt.figure(figsize=(10, 6))
+        plt.plot(self.loss_history, label="Training Loss")
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
+        plt.title("Loss Convergence")
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(self.results_folder / "loss_convergence.png")
+        plt.close()
+
+
+class GraphPredictionTrainer(BaseTrainer):        
+    def __init__(self, criterion=None, **kwargs):
+        super().__init__(**kwargs)
+        
+        # Set the loss function
+        if criterion is not None:
+            self.criterion = criterion
+        else:
+            # Default loss function for classification tasks
+            self.criterion = torch.nn.MSELoss()
+        
+        logging.info(f"Using loss function: {self.criterion.__class__.__name__}")
+
+    def train_step(self, data):
+        x_pred = self.model_forward(data)
+        loss = self.criterion(x_pred, data.y)
+        return loss
+
+    def model_forward(self, data):
+        if isinstance(self.model, GNN_TopK):
+            x_pred, _ = self.model(
+                data.x,
+                data.edge_index,
+                data.edge_attr,
+                data.pos,
+                batch=data.batch
+            )
+        elif isinstance(self.model, TopkMultiscaleGNN):
+            x_pred, mask = self.model(
+                data.x,
+                data.edge_index,
+                data.pos,
+                data.edge_attr,
+                data.batch
+            )
+        elif isinstance(self.model, SinglescaleGNN) or isinstance(self.model, MultiscaleGNN):
+            x_pred = self.model(
+                data.x,
+                data.edge_index,
+                data.pos,
+                data.edge_attr,
+                data.batch
+            )
+        elif isinstance(self.model, MeshGraphNet) or isinstance(self.model, MeshGraphAutoEncoder):
+            # MeshGraphNet uses edge attributes
+            x_pred = self.model(
+                data.x,
+                data.edge_index,
+                data.edge_attr,
+                data.batch
+            )
+        elif isinstance(self.model, GraphTransformer) or isinstance(self.model, GraphTransformerAutoEncoder):
+            x_pred = self.model(
+                data.x,
+                data.edge_index,
+                data.edge_attr if hasattr(data, 'edge_attr') else None,
+                data.batch
+            )
+        else: # GraphConvolutionNetwork, GraphAttentionNetwork
+            x_pred = self.model(
+                data.x,
+                data.edge_index,
+                data.batch
+            )
+        return x_pred

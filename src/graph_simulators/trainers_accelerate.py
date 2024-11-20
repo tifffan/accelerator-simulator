@@ -1,4 +1,4 @@
-# sequence_trainer_accelerate.py
+# trainer_accelerate.py
 
 import torch
 import torch.nn.functional as F

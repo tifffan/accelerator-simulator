@@ -1,4 +1,4 @@
-# sequence_train_accelerate.py
+# train_accelerate.py
 
 import torch
 import torch.nn.functional as F
@@ -33,15 +33,15 @@ from src.graph_models.models.multiscale.gnn import (
     MultiscaleGNN, 
     TopkMultiscaleGNN
 )
-from sequence_utils import (
+from graph_simulators.utils import (
     generate_results_folder_name,
     save_metadata,
     get_scheduler,
     set_random_seed
 )
-from sequence_config import parse_args
+from graph_simulators.config import parse_args
 
-from sequence_trainers_accelerate import SequenceTrainerAccelerate
+from graph_simulators.trainers_accelerate import SequenceTrainerAccelerate
 
 def is_autoencoder_model(model_name):
     """

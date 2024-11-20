@@ -1,4 +1,4 @@
-# sequence_config.py
+# config.py
 
 import argparse
 

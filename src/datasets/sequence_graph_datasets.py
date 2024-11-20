@@ -1,4 +1,4 @@
-# Filename: sequence_graph_dataset.py
+# sequence_graph_dataset.py
 
 import os
 import torch

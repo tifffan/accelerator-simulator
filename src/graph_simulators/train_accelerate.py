@@ -33,15 +33,15 @@ from src.graph_models.models.multiscale.gnn import (
     MultiscaleGNN, 
     TopkMultiscaleGNN
 )
-from graph_simulators.utils import (
+from src.graph_simulators.utils import (
     generate_results_folder_name,
     save_metadata,
     get_scheduler,
     set_random_seed
 )
-from graph_simulators.config import parse_args
+from src.graph_simulators.config import parse_args
 
-from graph_simulators.trainers_accelerate import SequenceTrainerAccelerate
+from src.graph_simulators.trainers_accelerate import SequenceTrainerAccelerate
 
 def is_autoencoder_model(model_name):
     """
@@ -145,6 +145,9 @@ def main():
     flattened_data = []
     for data_sequences in dataset:
         flattened_data.extend(data_sequences)
+        
+        
+    print("Total size of repeated data:", len(flattened_data))
 
     # Create the DataLoader with the custom collate function
     dataloader = DataLoader(
@@ -226,7 +229,8 @@ def main():
     # Initialize trainer with the loss function
     trainer = SequenceTrainerAccelerate(
         model=model,
-        dataloader=dataloader,
+        train_loader=dataloader,
+        val_loader=None,
         optimizer=optimizer,
         scheduler=scheduler,
         nepochs=args.nepochs,

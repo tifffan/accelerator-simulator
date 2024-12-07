@@ -89,7 +89,7 @@ class SequenceGraphDataset(Dataset):
 
         # Prepare data for training: list of (initial_graph, target_graph, seq_length)
         data_sequences = []
-        for t in range(len(data_list) - self.max_prediction_horizon):
+        for t in range(len(data_list) - 1):  # Iterate until the second last graph
             initial_graph = data_list[t]
             target_graphs = data_list[t+1:t+1+self.max_prediction_horizon]
             seq_length = len(target_graphs)

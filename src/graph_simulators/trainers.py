@@ -1,11 +1,33 @@
-# trainer_accelerate.py
+# trainers.py
 
 import torch
 import torch.nn.functional as F
 from torch_geometric.data import Data
 import logging
 import os
+from pathlib import Path
 from accelerate import Accelerator
+import matplotlib.pyplot as plt
+from tqdm import tqdm
+
+# Import model classes
+from src.graph_models.models.graph_networks import (
+    GraphConvolutionNetwork,
+    GraphAttentionNetwork,
+    GraphTransformer,
+    MeshGraphNet
+)
+
+from src.graph_models.models.intgnn.models import GNN_TopK
+from src.graph_models.models.multiscale.gnn import (
+    SinglescaleGNN, 
+    MultiscaleGNN, 
+    TopkMultiscaleGNN
+)
+
+from src.graph_models.context_models.context_graph_networks import *
+from src.graph_models.context_models.scale_graph_networks import *
+
 
 def identify_model_type(model):
     """
@@ -46,7 +68,8 @@ def identify_model_type(model):
         return 'AttentionConditionalGraphNetwork'
     else:
         raise ValueError(f"Unrecognized model type: {type(model).__name__}")
-    
+
+
 class BaseTrainer:
     def __init__(self, model, train_loader, val_loader, optimizer, scheduler=None, device='cpu', **kwargs):
         # Initialize the accelerator
@@ -105,10 +128,10 @@ class BaseTrainer:
                 progress_bar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{self.nepochs}")
             else:
                 progress_bar = self.train_loader
-            for batch_idx, data in enumerate(progress_bar):
+            for batch_idx, batch in enumerate(progress_bar):
                 # No need to move data to device; accelerator handles it
                 self.optimizer.zero_grad()
-                loss = self.train_step(data)
+                loss = self.train_step(batch)
                 # Use accelerator's backward method
                 self.accelerator.backward(loss)
                 self.optimizer.step()
@@ -165,8 +188,8 @@ class BaseTrainer:
         val_loss = 0.0
         num_batches = 0
         with torch.no_grad():
-            for data in self.val_loader:
-                loss = self.validate_step(data)
+            for batch in self.val_loader:
+                loss = self.validate_step(batch)
                 val_loss += loss.item()
                 num_batches += 1
 
@@ -255,99 +278,156 @@ class BaseTrainer:
 
 class SequenceTrainerAccelerate(BaseTrainer):
     def __init__(self, **kwargs):
-        # Pop out values from kwargs to prevent duplication
+        # Pop out values from kwargs
         criterion = kwargs.pop('criterion', None)
         discount_factor = kwargs.pop('discount_factor', 0.9)
+        lambda_ratio = kwargs.pop('lambda_ratio', 1.0)
+        noise_level = kwargs.pop('noise_level', 0.0)
         
         # Initialize the parent class
         super().__init__(**kwargs)
         
         self.criterion = criterion if criterion is not None else torch.nn.MSELoss()
         self.discount_factor = discount_factor
+        self.lambda_ratio = lambda_ratio
+        self.noise_level = noise_level
         
         logging.info(f"Using loss function: {self.criterion.__class__.__name__}")
         logging.info(f"Using discount factor: {self.discount_factor}")
-        
+        logging.info(f"Using lambda ratio for loss weighting: {self.lambda_ratio}")
+        logging.info(f"Using noise level: {self.noise_level}")
+
     def train_step(self, batch):
         """
-        Perform one training step with discounted loss.
+        Perform one training step with the new model and dataset.
         """
-        # if self.include_settings:
-        #     initial_graphs, target_graphs, seq_lengths, settings = batch
-        # else: TODO: add settings?
-        initial_graphs, target_graphs, seq_lengths = batch
+        self.model.train()
+        total_loss = 0.0
+        batch_size = len(batch)
+        epsilon = 1e-8  # To prevent division by zero
+        
+        for data_tuple in batch:
+            # Unpack the data tuple
+            if len(data_tuple) == 4:
+                initial_graph, target_graph, seq_length, settings_tensor = data_tuple
+            else:
+                raise ValueError("Expected 4 elements in the data tuple.")
+            
+            # Add noise to initial node features if noise_level > 0
+            if self.noise_level > 0:
+                initial_graph.x += torch.randn_like(initial_graph.x) * self.noise_level
 
-        total_loss = 0
-        batch_size = len(initial_graphs)
+            # Forward pass
+            predicted_node_features, predicted_log_ratios = self.model_forward(
+                initial_graph=initial_graph,
+                settings_tensor=settings_tensor,
+                batch=initial_graph.batch,
+                model_type=self.model_type
+            )
+            
+            # Compute actual log ratios
+            actual_log_ratios = torch.log(
+                (target_graph.scale + epsilon) / (initial_graph.scale + epsilon)
+            )
 
-        for initial_graph, target_graph, seq_length in zip(initial_graphs, target_graphs, seq_lengths):
-            # Perform forward pass
-            prediction = self.model_forward(initial_graph)
+            # Compute losses
+            log_ratio_loss = self.criterion(predicted_log_ratios, actual_log_ratios)
+            node_reconstruction_loss = self.criterion(predicted_node_features, target_graph.x)
+            
+            # Weighted loss
+            loss = node_reconstruction_loss + self.lambda_ratio * log_ratio_loss
 
-            # Compute loss for the current step
-            step_loss = self.criterion(prediction, target_graph.x)
-
-            # Apply discount factor
-            # Assuming k = 0 since each target_graph corresponds to a specific step
-            # Modify if multiple steps per target_graph are needed
-            discounted_loss = (self.discount_factor ** (seq_length)) * step_loss
-
+            # Apply discount factor for multi-step sequences
+            discounted_loss = (self.discount_factor ** (seq_length - 1)) * loss
+            
             # Accumulate loss
-            total_loss += discounted_loss / batch_size  # Normalize by batch size
-
+            total_loss += discounted_loss / batch_size
+        
         return total_loss
 
-    def model_forward(self, data):
+    def validate_step(self, batch):
+        """
+        Perform one validation step with the new model and dataset.
+        """
+        self.model.eval()
+        total_loss = 0.0
+        batch_size = len(batch)
+        epsilon = 1e-8  # To prevent division by zero
+
+        with torch.no_grad():
+            for data_tuple in batch:
+                # Unpack the data tuple
+                if len(data_tuple) == 4:
+                    initial_graph, target_graph, seq_length, settings_tensor = data_tuple
+                else:
+                    raise ValueError("Expected 4 elements in the data tuple.")
+                
+                # Forward pass
+                predicted_node_features, predicted_log_ratios = self.model_forward(
+                    initial_graph=initial_graph,
+                    settings_tensor=settings_tensor,
+                    batch=initial_graph.batch,
+                    model_type=self.model_type
+                )
+                
+                # Compute actual log ratios
+                actual_log_ratios = torch.log(
+                    (target_graph.scale + epsilon) / (initial_graph.scale + epsilon)
+                )
+
+                # Compute losses
+                log_ratio_loss = self.criterion(predicted_log_ratios, actual_log_ratios)
+                node_reconstruction_loss = self.criterion(predicted_node_features, target_graph.x)
+
+                # Weighted loss
+                loss = node_reconstruction_loss + self.lambda_ratio * log_ratio_loss
+
+                # Apply discount factor for multi-step sequences
+                discounted_loss = (self.discount_factor ** (seq_length - 1)) * loss
+                
+                # Accumulate loss
+                total_loss += discounted_loss / batch_size
+        
+        return total_loss
+
+    def model_forward(self, initial_graph, settings_tensor, batch, model_type):
         """
         Calls the model's forward method based on the identified model type.
         """
-        model_type = self.model_type
-        if model_type == 'GNN_TopK':
-            x_pred, _ = self.model(
-                x=data.x,
-                edge_index=data.edge_index,
-                edge_attr=data.edge_attr,
-                pos=data.pos,
-                batch=data.batch
+        if model_type == 'ScaleAwareLogRatioConditionalGraphNetwork':
+            # Extract necessary inputs from initial_graph
+            x = initial_graph.x
+            edge_index = initial_graph.edge_index
+            edge_attr = initial_graph.edge_attr
+            scale = initial_graph.scale
+            conditions = settings_tensor
+            
+            # Forward pass through the model
+            predicted_features, predicted_log_ratios = self.model(
+                x=x,
+                edge_index=edge_index,
+                edge_attr=edge_attr,
+                conditions=conditions,
+                scale=scale,
+                batch=batch
             )
-        elif model_type == 'TopkMultiscaleGNN':
-            x_pred, _ = self.model(
-                x=data.x,
-                edge_index=data.edge_index,
-                pos=data.pos,
-                edge_attr=data.edge_attr,
-                batch=data.batch
+        elif model_type == 'GeneralGraphNetwork':
+            # Example handling for GeneralGraphNetwork
+            x = initial_graph.x
+            edge_index = initial_graph.edge_index
+            edge_attr = initial_graph.edge_attr
+            u = initial_graph.global_features  # Assuming global_features exist
+            # Forward pass
+            x_pred, edge_pred, u_pred = self.model(
+                x=x,
+                edge_index=edge_index,
+                edge_attr=edge_attr,
+                u=u,
+                batch=batch
             )
-        elif model_type in ['SinglescaleGNN', 'MultiscaleGNN']:
-            x_pred = self.model(
-                x=data.x,
-                edge_index=data.edge_index,
-                pos=data.pos,
-                edge_attr=data.edge_attr,
-                batch=data.batch
-            )
-        elif model_type in ['MeshGraphNet', 'MeshGraphAutoEncoder']:
-            x_pred = self.model(
-                x=data.x,
-                edge_index=data.edge_index,
-                edge_attr=data.edge_attr,
-                batch=data.batch
-            )
-        elif model_type in ['GraphTransformer', 'GraphTransformerAutoEncoder']:
-            x_pred = self.model(
-                x=data.x,
-                edge_index=data.edge_index,
-                edge_attr=data.edge_attr if hasattr(data, 'edge_attr') else None,
-                batch=data.batch
-            )
-        else:  # GraphConvolutionNetwork, GraphAttentionNetwork, etc.
-            x_pred = self.model(
-                x=data.x,
-                edge_index=data.edge_index,
-                batch=data.batch
-            )
-        return x_pred
-
-    # def save_checkpoint(self, epoch):
-    #     # Save checkpoint as in BaseTrainer
-    #     super().save_checkpoint(epoch)
+            predicted_features = x_pred
+            predicted_log_ratios = u_pred  # Assuming u_pred contains log ratios
+        else:
+            raise NotImplementedError(f"Model type '{model_type}' is not supported.")
+        
+        return predicted_node_features, predicted_log_ratios

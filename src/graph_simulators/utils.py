@@ -41,6 +41,8 @@ def generate_results_folder_name(args):
     parts.append(f"ly{args.num_layers}")
     parts.append(f"df{args.discount_factor:.2f}")  # Add discount factor for sequence training
     parts.append(f"hor{args.horizon}")  # Add prediction horizon
+    parts.append(f"nl{args.noise_level}")  # Add noise
+    parts.append(f"lam{args.lambda_ratio}")  # Add lambda ratio
     parts.append(f"ep{args.nepochs}")
 
     # Append pooling ratios if present

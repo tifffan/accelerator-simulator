@@ -4,6 +4,7 @@ data/*.h5
 # scripts
 *.out
 *.err
+results/*
 
 # simulation byproducts
 src/simulations/rotate_gaussian_identical_settings_low_total_charge/dump_FACET_CNSGA.yaml
@@ -68,6 +69,7 @@ Temporary Items
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
+*/__pycache__/*
 *.py[cod]
 *$py.class
 *.pyc

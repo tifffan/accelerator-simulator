@@ -119,10 +119,14 @@ def parse_args():
                         help="Path to the scaling factors text file (required if include_scaling_factors is True).")
     parser.add_argument('--use_edge_attr', action='store_true',
                         help="Compute and include edge attributes for graphs (default: False).")
+    parser.add_argument('--edge_attr_method', type=str, default='v1',
+                        help="Method to compute edge attributes: 'v0', 'v1(n)', 'v2(n)', or 'v3'.")
     parser.add_argument('--mode', type=str, default='train', choices=['train', 'evaluate'], help="Mode to run.")
 
-    parser.add_argument('--ntrain', type=int, default=None, 
-                        help="Number of training examples to use (default: all).")
+    parser.add_argument('--ntrain', type=int, required=True, help='Number of training graphs.')
+    parser.add_argument('--nval', type=int, required=True, help='Number of validation graphs.')
+    parser.add_argument('--ntest', type=int, required=True, help='Number of testing graphs.')
+
     parser.add_argument('--nepochs', type=int, default=100, help="Number of training epochs.")
     parser.add_argument('--save_checkpoint_every', type=int, default=10, help="Save checkpoint every N epochs.")
     parser.add_argument('--lr', type=float, default=1e-4, help="Learning rate for training.")

@@ -14,8 +14,9 @@ import os
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Import models and utilities
-from src.datasets.sequence_graph_datasets import SequenceGraphDataset
-from src.datasets.sequence_graph_position_scale_datasets import SequenceGraphSettingsPositionScaleDataset
+# from src.datasets.sequence_graph_datasets import SequenceGraphDataset
+# from src.datasets.sequence_graph_position_scale_datasets import SequenceGraphSettingsPositionScaleDataset
+from dataloaders import SequenceGraphSettingsDataLoaders
 
 from src.graph_models.models.graph_networks import (
     GraphConvolutionNetwork,
@@ -23,18 +24,18 @@ from src.graph_models.models.graph_networks import (
     GraphTransformer,
     MeshGraphNet
 )
-from src.graph_models.models.graph_autoencoders import (
-    GraphConvolutionalAutoEncoder,
-    GraphAttentionAutoEncoder,
-    GraphTransformerAutoEncoder,
-    MeshGraphAutoEncoder
-)
-from src.graph_models.models.intgnn.models import GNN_TopK
-from src.graph_models.models.multiscale.gnn import (
-    SinglescaleGNN, 
-    MultiscaleGNN, 
-    TopkMultiscaleGNN
-)
+# from src.graph_models.models.graph_autoencoders import (
+#     GraphConvolutionalAutoEncoder,
+#     GraphAttentionAutoEncoder,
+#     GraphTransformerAutoEncoder,
+#     MeshGraphAutoEncoder
+# )
+# from src.graph_models.models.intgnn.models import GNN_TopK
+# from src.graph_models.models.multiscale.gnn import (
+#     SinglescaleGNN, 
+#     MultiscaleGNN, 
+#     TopkMultiscaleGNN
+# )
 from src.graph_models.context_models.context_graph_networks import *
 from src.graph_models.context_models.scale_graph_networks import *
 
@@ -100,102 +101,106 @@ def main():
     use_edge_attr = args.model.lower() in models_requiring_edge_attr
     logging.info(f"Model '{args.model}' requires edge_attr: {use_edge_attr}")
 
-    # Initialize dataset
-    logging.info("Initializing dataset.")
-    dataset = SequenceGraphSettingsPositionScaleDataset(
-        graph_data_dir=graph_data_dir,
-        initial_step=args.initial_step,
-        final_step=args.final_step,
-        max_prediction_horizon=args.horizon,
-        include_settings=args.include_settings,
-        identical_settings=args.identical_settings,
-        use_edge_attr=args.use_edge_attr,
-        subsample_size=args.subsample_size,
-        include_position_index=args.include_position_index,
-        include_scaling_factors=args.include_scaling_factors,
-        scaling_factors_file=args.scaling_factors_file
-    )
-    logging.info(f"Dataset initialized with size: {len(dataset)}")
+    # Initialize DataLoaders using the updated class
+    logging.info("Initializing SequenceGraphSettingsDataLoaders.")
 
-    # Subset dataset if ntrain is specified
-    total_dataset_size = len(dataset)
-    logging.info(f"Total dataset size: {total_dataset_size}")
-    if args.ntrain is not None:
-        np.random.seed(args.random_seed)  # For reproducibility
-        indices = np.random.permutation(total_dataset_size)[:args.ntrain]
-        dataset = Subset(dataset, indices)
-        logging.info(f"Subset dataset to first {args.ntrain} samples.")
+    try:
+        data_loaders = SequenceGraphSettingsDataLoaders(
+            graph_data_dir=graph_data_dir,
+            initial_step=args.initial_step,
+            final_step=args.final_step,
+            max_prediction_horizon=args.horizon,
+            include_settings=args.include_settings,
+            identical_settings=args.identical_settings,
+            use_edge_attr=args.use_edge_attr,
+            subsample_size=args.subsample_size,
+            include_position_index=args.include_position_index,
+            include_scaling_factors=args.include_scaling_factors,
+            scaling_factors_file=args.scaling_factors_file,
+            # task=args.task,  # Ensure 'task' is defined in args
+            edge_attr_method=args.edge_attr_method,  # Ensure 'edge_attr_method' is defined in args
+            preload_data=args.preload_data,
+            batch_size=args.batch_size,
+            n_train=args.ntrain,
+            n_val=args.nval,
+            n_test=args.ntest
+        )
+        logging.info("SequenceGraphSettingsDataLoaders initialized successfully.")
+    except Exception as e:
+        logging.error(f"Failed to initialize DataLoaders: {e}")
+        raise
 
-    # Flattening the dataset to pass one pair at a time
-    logging.info("Flattening dataset.")
-    flattened_data = []
-    for data_sequences in dataset:
-        flattened_data.extend(data_sequences)
-    logging.info(f"Total size of flattened data: {len(flattened_data)}")
+    # Retrieve DataLoaders
+    train_loader = data_loaders.get_train_loader()
+    val_loader = data_loaders.get_val_loader()
+    test_loader = data_loaders.get_test_loader()
+    # all_data_loader = data_loaders.get_all_data_loader()
 
-    def collate_fn(batch):
-        """
-        Custom collate function for DataLoader.
-        This version creates batched graph objects using PyTorch Geometric's Batch class.
-        """
-        logging.debug("Collate function called.")
-        initial_graphs = []
-        target_graphs = []
-        seq_lengths = []
-        settings_list = []
-        include_settings = False
+    logging.info(f"Train DataLoader: {len(train_loader)} batches.")
+    logging.info(f"Validation DataLoader: {len(val_loader)} batches.")
+    logging.info(f"Test DataLoader: {len(test_loader)} batches.")
 
-        for sample in batch:
-            if len(sample) == 4:
-                initial_graph, target_graph, seq_length, setting = sample
-                include_settings = True
-                settings_list.append(setting)
-            else:
-                initial_graph, target_graph, seq_length = sample
+    # Retrieve a Sample Data Batch for Model Initialization
+    logging.info("Retrieving a sample data batch for model initialization.")
 
-            initial_graphs.append(initial_graph)
-            target_graphs.append(target_graph)
-            seq_lengths.append(seq_length)
-
-        batch_initial = Batch.from_data_list(initial_graphs)
-        batch_target = Batch.from_data_list(target_graphs)
-        logging.debug("Batched initial and target graphs.")
-
-        if include_settings:
-            settings_tensor = torch.stack(settings_list, dim=0)
-            logging.debug("Settings tensor created.")
-            return batch_initial, batch_target, torch.tensor(seq_lengths), settings_tensor
+    try:
+        sample_batch = next(iter(train_loader))
+        if args.include_settings:
+            batch_initial_graph, batch_target_graph, seq_lengths, settings_tensor = sample_batch
+            logging.info("Sample Batch includes settings.")
+            logging.debug(f"Batch Initial Graphs: {batch_initial_graph}")
+            logging.debug(f"Batch Target Graphs: {batch_target_graph}")
+            logging.debug(f"Sequence Lengths: {seq_lengths}")
+            logging.debug(f"Settings Tensor: {settings_tensor}")
         else:
-            return batch_initial, batch_target, torch.tensor(seq_lengths)
+            batch_initial_graph, batch_target_graph, seq_lengths = sample_batch
+            logging.info("Sample Batch does not include settings.")
+            logging.debug(f"Batch Initial Graphs: {batch_initial_graph}")
+            logging.debug(f"Batch Target Graphs: {batch_target_graph}")
+            logging.debug(f"Sequence Lengths: {seq_lengths}")
+    except StopIteration:
+        logging.error("Train DataLoader is empty. Cannot retrieve a sample batch.")
+        raise
+    except Exception as e:
+        logging.error(f"Failed to retrieve a sample batch: {e}")
+        raise
 
-    # Create the DataLoader
-    logging.info("Creating DataLoader.")
-    dataloader = DataLoader(
-        flattened_data,
-        batch_size=args.batch_size,
-        shuffle=True,
-        collate_fn=collate_fn
-    )
-    logging.info(f"DataLoader created with batch size: {args.batch_size}")
+    logging.info(f"Train DataLoader: {len(train_loader)} batches.")
+    logging.info(f"Validation DataLoader: {len(val_loader)} batches.")
+    logging.info(f"Test DataLoader: {len(test_loader)} batches.")
 
-    # Optional: Inspect a batch
-    """
-    batch = next(iter(dataloader))
-    initial_graphs, target_graphs_list, seq_lengths = zip(*[
-        (seq[0], seq[1], seq[2]) for seq in batch
-    ])
-    logging.info(f"Initial graphs type: {type(initial_graphs)}")
-    logging.info(f"Target graphs list type: {type(target_graphs_list)}")
-    logging.info(f"Sequence lengths type: {type(seq_lengths)}")
-    """
+    # Retrieve a Sample Data Batch for Model Initialization
+    logging.info("Retrieving a sample data batch for model initialization.")
+
+    try:
+        sample_batch = next(iter(train_loader))
+        if args.include_settings:
+            batch_initial_graph, batch_target_graph, seq_lengths, settings_tensor = sample_batch
+            logging.info("Sample Batch includes settings.")
+            logging.debug(f"Batch Initial Graphs: {batch_initial_graph}")
+            logging.debug(f"Batch Target Graphs: {batch_target_graph}")
+            logging.debug(f"Sequence Lengths: {seq_lengths}")
+            logging.debug(f"Settings Tensor: {settings_tensor}")
+        else:
+            batch_initial_graph, batch_target_graph, seq_lengths = sample_batch
+            logging.info("Sample Batch does not include settings.")
+            logging.debug(f"Batch Initial Graphs: {batch_initial_graph}")
+            logging.debug(f"Batch Target Graphs: {batch_target_graph}")
+            logging.debug(f"Sequence Lengths: {seq_lengths}")
+    except StopIteration:
+        logging.error("Train DataLoader is empty. Cannot retrieve a sample batch.")
+        raise
+    except Exception as e:
+        logging.error(f"Failed to retrieve a sample batch: {e}")
+        raise
 
     # Get a sample data for model initialization
     logging.info("Retrieving sample data for model initialization.")
-    sample_initial_graph = dataset[0][0][0]  # Assuming dataset[0] is a list containing one data tuple
-    sample_final_graph = dataset[0][0][1]    # target_graph
+    sample_initial_graph = train_loader.dataset[0][0]  # Assuming dataset[0] is a list containing one data tuple
+    sample_final_graph = train_loader.dataset[0][1]    # target_graph
     if args.include_settings:
         logging.info("args.include_settings is True")
-        sample_settings = dataset[0][0][3]
+        sample_settings = train_loader.dataset[0][3]
 
     in_channels = sample_initial_graph.x.shape[1]
     out_channels = sample_final_graph.x.shape[1]  # Assuming node features remain the same
@@ -277,8 +282,8 @@ def main():
     # Initialize trainer with the dual loss functions and Gaussian noise
     trainer = SequenceTrainerAccelerate(
         model=model,
-        train_loader=dataloader,
-        val_loader=None,  # Set to your validation DataLoader if available
+        train_loader=train_loader,
+        val_loader=val_loader,
         optimizer=optimizer,
         scheduler=scheduler,
         nepochs=args.nepochs,

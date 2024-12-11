@@ -34,6 +34,8 @@ python_command="src/graph_simulators/train.py \
     --initial_step 1 \
     --final_step 21 \
     --ntrain 10 \
+    --nval 10 \
+    --ntest 10 \
     --include_settings \
     --identical_settings \
     --include_position_index \

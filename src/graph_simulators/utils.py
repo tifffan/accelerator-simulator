@@ -35,6 +35,7 @@ def generate_results_folder_name(args):
     parts.append(f"{args.data_keyword}")
     parts.append(f"r{args.random_seed}")
     parts.append(f"nt{args.ntrain if args.ntrain is not None else 'all'}")
+    parts.append(f"nv{args.nval if args.nval is not None else 'all'}")
     parts.append(f"b{args.batch_size}")
     parts.append(f"lr{args.lr:.0e}")  # Format learning rate in scientific notation
     parts.append(f"h{args.hidden_dim}")

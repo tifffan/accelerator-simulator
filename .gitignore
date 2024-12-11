@@ -1,3 +1,4 @@
 src/datasets/__pycache__/
 results/
 src/graph_simulators/__pycache__/
+*.pyc

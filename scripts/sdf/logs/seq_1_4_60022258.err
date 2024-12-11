@@ -1,0 +1,53 @@
+0: 2024-12-10 18:11:09,142 - INFO - Using device: cuda
+0: 2024-12-10 18:11:09,142 - INFO - Graph data directory: /sdf/data/ad/ard/u/tiffan/data/sequence_graph_data_archive_4/knn_k5_weighted_graphs
+0: 2024-12-10 18:11:09,142 - INFO - Results will be saved to /sdf/data/ad/ard/u/tiffan/sequence_results/scgn/sequence_graph_data_archive_4/seq_init1_final21/knn_k5_weighted_r63_nt10000_b16_lr1e-03_h256_ly4_df0.90_hor1_nl0.01_lam1.0_ep100
+0: 2024-12-10 18:11:09,166 - INFO - Model 'scgn' requires edge_attr: True
+0: 2024-12-10 18:11:09,176 - INFO - Using device: cuda
+0: 2024-12-10 18:11:09,176 - INFO - Graph data directory: /sdf/data/ad/ard/u/tiffan/data/sequence_graph_data_archive_4/knn_k5_weighted_graphs
+0: 2024-12-10 18:11:09,176 - INFO - Results will be saved to /sdf/data/ad/ard/u/tiffan/sequence_results/scgn/sequence_graph_data_archive_4/seq_init1_final21/knn_k5_weighted_r63_nt10000_b16_lr1e-03_h256_ly4_df0.90_hor1_nl0.01_lam1.0_ep100
+0: 2024-12-10 18:11:09,178 - INFO - Model 'scgn' requires edge_attr: True
+0: 2024-12-10 18:11:09,182 - INFO - Using device: cuda
+0: 2024-12-10 18:11:09,182 - INFO - Graph data directory: /sdf/data/ad/ard/u/tiffan/data/sequence_graph_data_archive_4/knn_k5_weighted_graphs
+0: 2024-12-10 18:11:09,182 - INFO - Results will be saved to /sdf/data/ad/ard/u/tiffan/sequence_results/scgn/sequence_graph_data_archive_4/seq_init1_final21/knn_k5_weighted_r63_nt10000_b16_lr1e-03_h256_ly4_df0.90_hor1_nl0.01_lam1.0_ep100
+0: 2024-12-10 18:11:09,183 - INFO - Model 'scgn' requires edge_attr: True
+0: 2024-12-10 18:11:09,191 - INFO - Using device: cuda
+0: 2024-12-10 18:11:09,191 - INFO - Graph data directory: /sdf/data/ad/ard/u/tiffan/data/sequence_graph_data_archive_4/knn_k5_weighted_graphs
+0: 2024-12-10 18:11:09,191 - INFO - Results will be saved to /sdf/data/ad/ard/u/tiffan/sequence_results/scgn/sequence_graph_data_archive_4/seq_init1_final21/knn_k5_weighted_r63_nt10000_b16_lr1e-03_h256_ly4_df0.90_hor1_nl0.01_lam1.0_ep100
+0: 2024-12-10 18:11:09,192 - INFO - Model 'scgn' requires edge_attr: True
+0: [2024-12-10 18:20:30,766] torch.distributed.elastic.multiprocessing.api: [WARNING] Sending process 4042489 closing signal SIGTERM
+0: [2024-12-10 18:20:30,767] torch.distributed.elastic.multiprocessing.api: [WARNING] Sending process 4042490 closing signal SIGTERM
+0: [2024-12-10 18:20:30,767] torch.distributed.elastic.multiprocessing.api: [WARNING] Sending process 4042491 closing signal SIGTERM
+0: [2024-12-10 18:20:33,076] torch.distributed.elastic.multiprocessing.api: [ERROR] failed (exitcode: -9) local_rank: 0 (pid: 4042488) of binary: /sdf/group/ad/beamphysics/tiffan/envs/miniconda3/envs/ignn/bin/python3.8
+0: Traceback (most recent call last):
+0:   File "/sdf/group/ad/beamphysics/tiffan/envs/miniconda3/envs/ignn/bin/accelerate", line 10, in <module>
+0:     sys.exit(main())
+0:   File "/sdf/group/ad/beamphysics/tiffan/envs/miniconda3/envs/ignn/lib/python3.8/site-packages/accelerate/commands/accelerate_cli.py", line 48, in main
+0:     args.func(args)
+0:   File "/sdf/group/ad/beamphysics/tiffan/envs/miniconda3/envs/ignn/lib/python3.8/site-packages/accelerate/commands/launch.py", line 1159, in launch_command
+0:     multi_gpu_launcher(args)
+0:   File "/sdf/group/ad/beamphysics/tiffan/envs/miniconda3/envs/ignn/lib/python3.8/site-packages/accelerate/commands/launch.py", line 793, in multi_gpu_launcher
+0:     distrib_run.run(args)
+0:   File "/sdf/group/ad/beamphysics/tiffan/envs/miniconda3/envs/ignn/lib/python3.8/site-packages/torch/distributed/run.py", line 803, in run
+0:     elastic_launch(
+0:   File "/sdf/group/ad/beamphysics/tiffan/envs/miniconda3/envs/ignn/lib/python3.8/site-packages/torch/distributed/launcher/api.py", line 135, in __call__
+0:     return launch_agent(self._config, self._entrypoint, list(args))
+0:   File "/sdf/group/ad/beamphysics/tiffan/envs/miniconda3/envs/ignn/lib/python3.8/site-packages/torch/distributed/launcher/api.py", line 268, in launch_agent
+0:     raise ChildFailedError(
+0: torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+0: ========================================================
+0: src/graph_simulators/train.py FAILED
+0: --------------------------------------------------------
+0: Failures:
+0:   <NO_OTHER_FAILURES>
+0: --------------------------------------------------------
+0: Root Cause (first observed failure):
+0: [0]:
+0:   time      : 2024-12-10_18:20:30
+0:   host      : sdfampere006.sdf.slac.stanford.edu
+0:   rank      : 0 (local_rank: 0)
+0:   exitcode  : -9 (pid: 4042488)
+0:   error_file: <N/A>
+0:   traceback : Signal 9 (SIGKILL) received by PID 4042488
+0: ========================================================
+0: slurmstepd: error: Detected 1 oom_kill event in StepId=60022258.0. Some of the step tasks have been OOM Killed.
+srun: error: sdfampere006: task 0: Out Of Memory

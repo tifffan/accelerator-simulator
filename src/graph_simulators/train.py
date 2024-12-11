@@ -1,9 +1,10 @@
-# train_accelerate.py
+# train.py
 
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Subset
 from torch.utils.data import DataLoader
+from torch_geometric.data import Batch
 
 import numpy as np
 import logging
@@ -55,17 +56,21 @@ def is_autoencoder_model(model_name):
 
 def main():
     args = parse_args()
-    
+    logging.info("Parsed command-line arguments.")
+
     # Validation for dependencies
     if args.include_scaling_factors and not args.scaling_factors_file:
+        logging.error("Scaling factors file not specified while include_scaling_factors is True.")
         raise ValueError("Scaling factors file must be specified when include_scaling_factors is True.")
-    
+    logging.info("Validated dependencies.")
+
     # Set device
     if args.cpu_only:
         device = torch.device('cpu')
+        logging.info("CPU only mode enabled.")
     else:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    logging.info(f"Using device: {device}")
+        logging.info(f"Using device: {device}")
 
     # Generate data directory
     graph_data_dir = os.path.join(args.base_data_dir, args.dataset, f"{args.data_keyword}_graphs")
@@ -74,13 +79,17 @@ def main():
     # Generate results folder name
     if args.results_folder is not None:
         results_folder = args.results_folder
+        logging.info("Using provided results folder name.")
     else:
         results_folder = generate_results_folder_name(args)
+        logging.info("Generated results folder name.")
     logging.info(f"Results will be saved to {results_folder}")
     os.makedirs(results_folder, exist_ok=True)
+    logging.info(f"Ensured results folder exists at: {results_folder}")
 
     # Set random seed
     set_random_seed(args.random_seed)
+    logging.info(f"Random seed set to: {args.random_seed}")
 
     # Determine if the model requires edge_attr
     models_requiring_edge_attr = [
@@ -92,6 +101,7 @@ def main():
     logging.info(f"Model '{args.model}' requires edge_attr: {use_edge_attr}")
 
     # Initialize dataset
+    logging.info("Initializing dataset.")
     dataset = SequenceGraphSettingsPositionScaleDataset(
         graph_data_dir=graph_data_dir,
         initial_step=args.initial_step,
@@ -105,47 +115,69 @@ def main():
         include_scaling_factors=args.include_scaling_factors,
         scaling_factors_file=args.scaling_factors_file
     )
+    logging.info(f"Dataset initialized with size: {len(dataset)}")
 
     # Subset dataset if ntrain is specified
     total_dataset_size = len(dataset)
+    logging.info(f"Total dataset size: {total_dataset_size}")
     if args.ntrain is not None:
         np.random.seed(args.random_seed)  # For reproducibility
         indices = np.random.permutation(total_dataset_size)[:args.ntrain]
         dataset = Subset(dataset, indices)
+        logging.info(f"Subset dataset to first {args.ntrain} samples.")
 
     # Flattening the dataset to pass one pair at a time
+    logging.info("Flattening dataset.")
     flattened_data = []
     for data_sequences in dataset:
         flattened_data.extend(data_sequences)
-        
     logging.info(f"Total size of flattened data: {len(flattened_data)}")
 
-    # Create the DataLoader with the custom collate function
     def collate_fn(batch):
         """
         Custom collate function for DataLoader.
-        Each batch will contain multiple data tuples, each corresponding to one pair.
-        This function wraps each data tuple in a list to represent individual sequences.
+        This version creates batched graph objects using PyTorch Geometric's Batch class.
         """
-        batch_sequences = []
+        logging.debug("Collate function called.")
+        initial_graphs = []
+        target_graphs = []
+        seq_lengths = []
+        settings_list = []
+        include_settings = False
+
         for sample in batch:
-            # Each sample is a tuple: (initial_graph, target_graph, seq_length, settings_tensor) or without settings
             if len(sample) == 4:
                 initial_graph, target_graph, seq_length, setting = sample
-                batch_sequences.append([initial_graph, target_graph, seq_length, setting])
+                include_settings = True
+                settings_list.append(setting)
             else:
                 initial_graph, target_graph, seq_length = sample
-                batch_sequences.append([initial_graph, target_graph, seq_length])
-        return batch_sequences
+
+            initial_graphs.append(initial_graph)
+            target_graphs.append(target_graph)
+            seq_lengths.append(seq_length)
+
+        batch_initial = Batch.from_data_list(initial_graphs)
+        batch_target = Batch.from_data_list(target_graphs)
+        logging.debug("Batched initial and target graphs.")
+
+        if include_settings:
+            settings_tensor = torch.stack(settings_list, dim=0)
+            logging.debug("Settings tensor created.")
+            return batch_initial, batch_target, torch.tensor(seq_lengths), settings_tensor
+        else:
+            return batch_initial, batch_target, torch.tensor(seq_lengths)
 
     # Create the DataLoader
+    logging.info("Creating DataLoader.")
     dataloader = DataLoader(
         flattened_data,
         batch_size=args.batch_size,
         shuffle=True,
         collate_fn=collate_fn
     )
-    
+    logging.info(f"DataLoader created with batch size: {args.batch_size}")
+
     # Optional: Inspect a batch
     """
     batch = next(iter(dataloader))
@@ -156,21 +188,21 @@ def main():
     logging.info(f"Target graphs list type: {type(target_graphs_list)}")
     logging.info(f"Sequence lengths type: {type(seq_lengths)}")
     """
-    
+
     # Get a sample data for model initialization
+    logging.info("Retrieving sample data for model initialization.")
     sample_initial_graph = dataset[0][0][0]  # Assuming dataset[0] is a list containing one data tuple
     sample_final_graph = dataset[0][0][1]    # target_graph
     if args.include_settings:
-        
         logging.info("args.include_settings is True")
-        
         sample_settings = dataset[0][0][3]
-        
-    
+
     in_channels = sample_initial_graph.x.shape[1]
     out_channels = sample_final_graph.x.shape[1]  # Assuming node features remain the same
+    logging.info(f"in_channels: {in_channels}, out_channels: {out_channels}")
 
     # Model initialization
+    logging.info("Initializing model.")
     if args.model.lower() == 'gcn':
         model = GraphConvolutionNetwork(
             in_channels=in_channels,
@@ -179,16 +211,15 @@ def main():
             num_layers=args.num_layers,
             pool_ratios=args.pool_ratios,
         )
+        logging.info("Initialized GraphConvolutionNetwork model.")
         
     elif args.model.lower() == 'mgn':
-        # Model parameters specific to MeshGraphNet
         node_in_dim = sample_initial_graph.x.shape[1]
         edge_in_dim = sample_initial_graph.edge_attr.shape[1] if hasattr(sample_initial_graph, 'edge_attr') and sample_initial_graph.edge_attr is not None else 0
         node_out_dim = sample_final_graph.x.shape[1]
         hidden_dim = args.hidden_dim
         num_layers = args.num_layers
 
-        # Initialize MeshGraphNet model
         model = MeshGraphNet(
             node_in_dim=node_in_dim,
             edge_in_dim=edge_in_dim,
@@ -199,12 +230,11 @@ def main():
         logging.info("Initialized MeshGraphNet model.")
 
     elif args.model.lower() == 'scgn':
-        # Initialize ScaleAwareLogRatioConditionalGraphNetwork model
         node_in_dim = sample_initial_graph.x.shape[1]
         edge_in_dim = sample_initial_graph.edge_attr.shape[1] if hasattr(sample_initial_graph, 'edge_attr') and sample_initial_graph.edge_attr is not None else 0
         node_out_dim = sample_final_graph.x.shape[1]
         cond_in_dim = sample_settings.shape[0] if args.include_settings else 0
-        scale_dim = sample_initial_graph.scale.shape[0]  # Assuming scale has shape [scale_dim]
+        scale_dim = sample_initial_graph.scale.shape[1]  # Assuming scale has shape [scale_dim]
         hidden_dim = args.hidden_dim
         num_layers = args.num_layers
         
@@ -224,10 +254,12 @@ def main():
         logging.info("Initialized ScaleAwareLogRatioConditionalGraphNetwork model.")
 
     else:
+        logging.error(f"Model '{args.model}' is not implemented.")
         raise NotImplementedError(f"Model '{args.model}' is not implemented in this script.")
 
     logging.info(f"Initialized model: {args.model}")
     model.to(device)
+    logging.info("Model moved to device.")
 
     # Optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -239,8 +271,8 @@ def main():
         logging.info("Initialized learning rate scheduler.")
 
     # Define the loss functions
-    criterion = torch.nn.MSELoss()
-    # criterion_log_ratios = torch.nn.MSELoss()
+    criterion = torch.nn.MSELoss(reduction='none')
+    logging.info("Defined MSE loss function.")
 
     # Initialize trainer with the dual loss functions and Gaussian noise
     trainer = SequenceTrainerAccelerate(
@@ -266,13 +298,18 @@ def main():
 
     # Save metadata
     save_metadata(args, model, results_folder)
+    logging.info("Saved metadata.")
 
     # Run train or evaluate
     if args.mode == 'train':
+        logging.info("Starting training process.")
         trainer.train()
+        logging.info("Training process completed.")
     else:
         logging.info("Evaluation mode is not implemented yet.")
         pass
 
 if __name__ == "__main__":
+    logging.info("Starting main execution.")
     main()
+    logging.info("Script execution finished.")

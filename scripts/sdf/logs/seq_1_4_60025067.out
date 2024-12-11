@@ -1,0 +1,5 @@
+PYTHONPATH is set to: /sdf/home/t/tiffan/repo/accelerator-simulator
+Start time: Tue Dec 10 19:36:20 PST 2024
+Running command: src/graph_simulators/train.py     --model scgn     --dataset sequence_graph_data_archive_4     --data_keyword knn_k5_weighted     --base_data_dir /sdf/data/ad/ard/u/tiffan/data     --base_results_dir /sdf/data/ad/ard/u/tiffan/sequence_results     --initial_step 1     --final_step 21     --ntrain 10     --include_settings     --identical_settings     --include_position_index     --include_scaling_factors     --scaling_factors_file data/sequence_particles_data_archive_4_global_statistics.txt     --use_edge_attr     --batch_size 32     --lr 0.001     --hidden_dim 256     --num_layers 4     --discount_factor 0.9     --horizon 1     --nepochs 100     --noise_level 1e-2     --lambda_ratio 1.0     --verbose     
+End time: Tue Dec 10 19:46:49 PST 2024
+Time taken: 0h 10m 29s

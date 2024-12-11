@@ -46,12 +46,12 @@ class SequenceGraphSettingsPositionScaleDataset(Dataset):
         # Load graph paths
         self.graph_paths = self._load_graph_paths()
 
-        print(f"Total graph sequences loaded: {len(self.graph_paths)}")
+        # print(f"Total graph sequences loaded: {len(self.graph_paths)}")
 
         # Subsample the dataset if subsample_size is specified
         if self.subsample_size is not None:
             self.graph_paths = self.graph_paths[:self.subsample_size]
-            print(f"Subsampled graph sequences to: {len(self.graph_paths)}")
+            # print(f"Subsampled graph sequences to: {len(self.graph_paths)}")
 
         # Load settings if required
         if self.include_settings:
@@ -61,7 +61,7 @@ class SequenceGraphSettingsPositionScaleDataset(Dataset):
                     raise ValueError(f"Settings file not found: {settings_file}")
                 self.settings = torch.load(settings_file)
                 self.settings_tensor = self.settings_dict_to_tensor(self.settings)
-                print(f"Loaded identical settings tensor shape: {self.settings_tensor.shape}")
+                # print(f"Loaded identical settings tensor shape: {self.settings_tensor.shape}")
             else:
                 self.settings_files = self._load_settings_files()
                 # Subsample settings_files to match the subsampled graph_paths
@@ -69,19 +69,19 @@ class SequenceGraphSettingsPositionScaleDataset(Dataset):
                     self.settings_files = self.settings_files[:self.subsample_size]
                 if len(self.settings_files) != len(self.graph_paths):
                     raise ValueError("Mismatch between number of graph sequences and settings files.")
-                print(f"Loaded individual settings files: {len(self.settings_files)}")
+                # print(f"Loaded individual settings files: {len(self.settings_files)}")
 
         # Load scaling factors if required
         if self.include_scaling_factors:
             if self.scaling_factors_file is None:
                 raise ValueError("Scaling factors file must be provided when include_scaling_factors is True.")
             self.scaling_factors = self._load_scaling_factors(self.scaling_factors_file)
-            print(f"Loaded scaling factors for {len(self.scaling_factors)} steps.")
+            # print(f"Loaded scaling factors for {len(self.scaling_factors)} steps.")
 
         # Determine the maximum step index for normalization if position index is included
         if self.include_position_index:
             self.max_x = MAX_STEP_INDEX
-            print(f"Determined maximum step index for normalization: {self.max_x}")
+            # print(f"Determined maximum step index for normalization: {self.max_x}")
 
     def _load_graph_paths(self):
         """
@@ -99,7 +99,7 @@ class SequenceGraphSettingsPositionScaleDataset(Dataset):
             files = sorted(os.listdir(dir), key=self._extract_graph_x)
             files = [os.path.join(dir, f) for f in files if f.endswith('.pt') and not f.endswith('_settings.pt')]
             graph_paths_per_step.append(files)
-            print(f"Loaded {len(files)} graph files from {dir}")
+            # print(f"Loaded {len(files)} graph files from {dir}")
 
         # Transpose to get list of sequences
         graph_paths = list(zip(*graph_paths_per_step))
@@ -182,7 +182,7 @@ class SequenceGraphSettingsPositionScaleDataset(Dataset):
             if 'mean' not in factors or 'std' not in factors:
                 raise ValueError(f"Missing mean or std for step {step} in scaling factors file.")
             combined_scaling_factors[step] = factors['mean'] + factors['std']
-            print(f"Step {step}: Combined scaling factors shape: {len(combined_scaling_factors[step])}")
+            # print(f"Step {step}: Combined scaling factors shape: {len(combined_scaling_factors[step])}")
 
         return combined_scaling_factors
 
@@ -221,12 +221,12 @@ class SequenceGraphSettingsPositionScaleDataset(Dataset):
         if self.include_settings:
             if self.identical_settings:
                 settings_tensor = self.settings_tensor  # Use the preloaded settings tensor
-                print(f"Using identical settings tensor for all sequences.")
+                # print(f"Using identical settings tensor for all sequences.")
             else:
                 settings_file = self.settings_files[idx]
                 settings = torch.load(settings_file)
                 settings_tensor = self.settings_dict_to_tensor(settings)
-                print(f"Loaded settings tensor shape for index {idx}: {settings_tensor.shape}")
+                # print(f"Loaded settings tensor shape for index {idx}: {settings_tensor.shape}")
 
             # Append additional features if flags are set
             if self.include_position_index:
@@ -255,13 +255,13 @@ class SequenceGraphSettingsPositionScaleDataset(Dataset):
                     # Normalize step index
                     normalized_position = torch.tensor([step_index / self.max_x], dtype=torch.float)
                     current_settings = torch.cat([normalized_position, current_settings], dim=0)
-                    print(f"Appended normalized position index: {normalized_position}")
+                    # print(f"Appended normalized position index: {normalized_position}")
 
                     augmented_settings.append(current_settings)
 
                 # Stack all augmented settings tensors
                 settings_tensor = torch.stack(augmented_settings)
-                print(f"Augmented settings tensor shape after adding position index: {settings_tensor.shape}")
+                # print(f"Augmented settings tensor shape after adding position index: {settings_tensor.shape}")
 
             # Attach settings to each tuple
             if self.include_position_index:
@@ -306,8 +306,8 @@ class SequenceGraphSettingsPositionScaleDataset(Dataset):
                 scaling_target = self.scaling_factors.get(target_step, [0.0]*12)
 
                 # Assign scaling factors to the graphs as new fields
-                initial_graph.scale = torch.tensor(scaling_initial, dtype=torch.float)
-                target_graph.scale = torch.tensor(scaling_target, dtype=torch.float)
+                initial_graph.scale = torch.tensor(scaling_initial, dtype=torch.float).unsqueeze(0)
+                target_graph.scale = torch.tensor(scaling_target, dtype=torch.float).unsqueeze(0)
 
                 # Replace the tuple with updated graphs
                 if self.include_settings:
@@ -332,7 +332,7 @@ class SequenceGraphSettingsPositionScaleDataset(Dataset):
             if data.x.shape[1] < 3:
                 raise ValueError("Node feature dimension is less than 3, cannot extract 'pos'.")
             data.pos = data.x[:, :3]
-            print(f"Assigned 'pos' from node features.")
+            # print(f"Assigned 'pos' from node features.")
 
         if hasattr(data, 'edge_index') and data.edge_index is not None:
             row, col = data.edge_index
@@ -347,7 +347,7 @@ class SequenceGraphSettingsPositionScaleDataset(Dataset):
             edge_attr = (edge_attr - edge_attr_mean) / (edge_attr_std + eps)
 
             data.edge_attr = edge_attr  # Assign the standardized edge attributes
-            print(f"Computed and assigned standardized edge attributes.")
+            # print(f"Computed and assigned standardized edge attributes.")
         else:
             raise ValueError("Data object is missing 'edge_index', cannot compute 'edge_attr'.")
 
@@ -374,8 +374,8 @@ class SequenceGraphSettingsPositionScaleDataset(Dataset):
                 except ValueError:
                     raise ValueError(f"Value for key '{key}' in settings_dict is not convertible to float.")
             values.append(value)
-            print(f"Converted setting '{key}' to tensor: {value}")
+            # print(f"Converted setting '{key}' to tensor: {value}")
 
         settings_tensor = torch.stack(values)
-        print(f"Constructed settings tensor with shape: {settings_tensor.shape}")
+        # print(f"Constructed settings tensor with shape: {settings_tensor.shape}")
         return settings_tensor

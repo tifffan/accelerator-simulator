@@ -61,7 +61,7 @@ class TopkMultiscaleGNN(torch.nn.Module):
         #     self.pool_ratios[i] = 1./self.rf_topk
         
         
-        assert(len(self.pool_ratios) == self.max_level_topk, "Length of pool_ratios must be equal to max_level_topk")
+        assert(len(self.pool_ratios == self.max_level_topk), "Length of pool_ratios must be equal to max_level_topk")
 
         # ~~~~ node encoder MLP  
         self.node_encoder = MLP(

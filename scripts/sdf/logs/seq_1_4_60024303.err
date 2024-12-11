@@ -1,0 +1,86 @@
+0: 2024-12-10 18:55:57,012 - INFO - Using device: cuda
+0: 2024-12-10 18:55:57,013 - INFO - Graph data directory: /sdf/data/ad/ard/u/tiffan/data/sequence_graph_data_archive_4/knn_k5_weighted_graphs
+0: 2024-12-10 18:55:57,013 - INFO - Results will be saved to /sdf/data/ad/ard/u/tiffan/sequence_results/scgn/sequence_graph_data_archive_4/seq_init1_final21/knn_k5_weighted_r63_nt1000_b16_lr1e-03_h256_ly4_df0.90_hor1_nl0.01_lam1.0_ep100
+0: 2024-12-10 18:55:57,027 - INFO - Model 'scgn' requires edge_attr: True
+0: 2024-12-10 18:55:57,051 - INFO - Using device: cuda
+0: 2024-12-10 18:55:57,051 - INFO - Graph data directory: /sdf/data/ad/ard/u/tiffan/data/sequence_graph_data_archive_4/knn_k5_weighted_graphs
+0: 2024-12-10 18:55:57,051 - INFO - Results will be saved to /sdf/data/ad/ard/u/tiffan/sequence_results/scgn/sequence_graph_data_archive_4/seq_init1_final21/knn_k5_weighted_r63_nt1000_b16_lr1e-03_h256_ly4_df0.90_hor1_nl0.01_lam1.0_ep100
+0: 2024-12-10 18:55:57,056 - INFO - Model 'scgn' requires edge_attr: True
+0: 2024-12-10 18:55:57,059 - INFO - Using device: cuda
+0: 2024-12-10 18:55:57,059 - INFO - Graph data directory: /sdf/data/ad/ard/u/tiffan/data/sequence_graph_data_archive_4/knn_k5_weighted_graphs
+0: 2024-12-10 18:55:57,059 - INFO - Results will be saved to /sdf/data/ad/ard/u/tiffan/sequence_results/scgn/sequence_graph_data_archive_4/seq_init1_final21/knn_k5_weighted_r63_nt1000_b16_lr1e-03_h256_ly4_df0.90_hor1_nl0.01_lam1.0_ep100
+0: 2024-12-10 18:55:57,060 - INFO - Model 'scgn' requires edge_attr: True
+0: 2024-12-10 18:55:57,061 - INFO - Using device: cuda
+0: 2024-12-10 18:55:57,061 - INFO - Graph data directory: /sdf/data/ad/ard/u/tiffan/data/sequence_graph_data_archive_4/knn_k5_weighted_graphs
+0: 2024-12-10 18:55:57,061 - INFO - Results will be saved to /sdf/data/ad/ard/u/tiffan/sequence_results/scgn/sequence_graph_data_archive_4/seq_init1_final21/knn_k5_weighted_r63_nt1000_b16_lr1e-03_h256_ly4_df0.90_hor1_nl0.01_lam1.0_ep100
+0: 2024-12-10 18:55:57,066 - INFO - Model 'scgn' requires edge_attr: True
+0: 2024-12-10 20:02:27,180 - INFO - Total size of flattened data: 20000
+0: 2024-12-10 20:02:28,287 - INFO - Total size of flattened data: 20000
+0: 2024-12-10 20:02:36,234 - INFO - args.include_settings is True
+0: 2024-12-10 20:02:36,869 - INFO - args.include_settings is True
+0: 2024-12-10 20:02:40,294 - INFO - cond_in_dim: 7
+0: 2024-12-10 20:02:40,294 - INFO - scale_dim: 12
+0: 2024-12-10 20:02:40,336 - INFO - Initialized ScaleAwareLogRatioConditionalGraphNetwork model.
+0: 2024-12-10 20:02:40,336 - INFO - Initialized model: scgn
+0: 2024-12-10 20:02:40,790 - INFO - cond_in_dim: 7
+0: 2024-12-10 20:02:40,790 - INFO - scale_dim: 12
+0: 2024-12-10 20:02:40,818 - INFO - Initialized ScaleAwareLogRatioConditionalGraphNetwork model.
+0: 2024-12-10 20:02:40,818 - INFO - Initialized model: scgn
+0: 2024-12-10 20:02:40,844 - INFO - Initialized Adam optimizer with learning rate: 0.001
+0: 2024-12-10 20:02:41,300 - INFO - Initialized Adam optimizer with learning rate: 0.001
+0: 2024-12-10 20:02:41,553 - INFO - Identified model type: ScaleAwareLogRatioConditionalGraphNetwork
+0: 2024-12-10 20:02:41,822 - INFO - Identified model type: ScaleAwareLogRatioConditionalGraphNetwork
+0: 2024-12-10 20:04:53,339 - INFO - Total size of flattened data: 20000
+0: 2024-12-10 20:04:56,494 - INFO - args.include_settings is True
+0: 2024-12-10 20:04:58,062 - INFO - cond_in_dim: 7
+0: 2024-12-10 20:04:58,062 - INFO - scale_dim: 12
+0: 2024-12-10 20:04:58,079 - INFO - Initialized ScaleAwareLogRatioConditionalGraphNetwork model.
+0: 2024-12-10 20:04:58,080 - INFO - Initialized model: scgn
+0: 2024-12-10 20:04:58,421 - INFO - Initialized Adam optimizer with learning rate: 0.001
+0: 2024-12-10 20:04:58,695 - WARNING - Detected kernel version 4.18.0, which is below the recommended minimum of 5.5.0; this can cause the process to hang. It is recommended to upgrade the kernel to the minimum version or higher.
+0: 2024-12-10 20:04:58,695 - INFO - Identified model type: ScaleAwareLogRatioConditionalGraphNetwork
+0: 2024-12-10 20:09:32,400 - INFO - Total size of flattened data: 20000
+0: 2024-12-10 20:09:40,828 - INFO - args.include_settings is True
+0: 2024-12-10 20:09:45,455 - INFO - cond_in_dim: 7
+0: 2024-12-10 20:09:45,455 - INFO - scale_dim: 12
+0: 2024-12-10 20:09:45,486 - INFO - Initialized ScaleAwareLogRatioConditionalGraphNetwork model.
+0: 2024-12-10 20:09:45,487 - INFO - Initialized model: scgn
+0: 2024-12-10 20:09:45,859 - INFO - Initialized Adam optimizer with learning rate: 0.001
+0: 2024-12-10 20:09:46,369 - INFO - Identified model type: ScaleAwareLogRatioConditionalGraphNetwork
+0: 2024-12-10 20:09:51,852 - INFO - Using loss function: MSELoss
+0: 2024-12-10 20:09:51,852 - INFO - Using discount factor: 0.9
+0: 2024-12-10 20:09:51,852 - INFO - Using lambda ratio for loss weighting: 1.0
+0: 2024-12-10 20:09:51,852 - INFO - Using noise level: 0.01
+0: 2024-12-10 20:09:51,852 - INFO - Initialized SequenceTrainerAccelerate with dual loss functions and Gaussian noise.
+0: 2024-12-10 20:09:51,855 - INFO - Metadata saved to /sdf/data/ad/ard/u/tiffan/sequence_results/scgn/sequence_graph_data_archive_4/seq_init1_final21/knn_k5_weighted_r63_nt1000_b16_lr1e-03_h256_ly4_df0.90_hor1_nl0.01_lam1.0_ep100/metadata_20241210_200951.txt
+0: 2024-12-10 20:09:51,855 - INFO - Starting training...
+0: 2024-12-10 20:09:51,859 - INFO - Using loss function: MSELoss
+0: 2024-12-10 20:09:51,859 - INFO - Using discount factor: 0.9
+0: 2024-12-10 20:09:51,859 - INFO - Using lambda ratio for loss weighting: 1.0
+0: 2024-12-10 20:09:51,859 - INFO - Using noise level: 0.01
+0: 2024-12-10 20:09:51,859 - INFO - Initialized SequenceTrainerAccelerate with dual loss functions and Gaussian noise.
+0: 2024-12-10 20:09:51,859 - INFO - Using loss function: MSELoss
+0: 2024-12-10 20:09:51,859 - INFO - Using discount factor: 0.9
+0: 2024-12-10 20:09:51,859 - INFO - Using lambda ratio for loss weighting: 1.0
+0: 2024-12-10 20:09:51,860 - INFO - Using noise level: 0.01
+0: 2024-12-10 20:09:51,860 - INFO - Initialized SequenceTrainerAccelerate with dual loss functions and Gaussian noise.
+0: 2024-12-10 20:09:51,860 - INFO - Using loss function: MSELoss
+0: 2024-12-10 20:09:51,860 - INFO - Using discount factor: 0.9
+0: 2024-12-10 20:09:51,860 - INFO - Using lambda ratio for loss weighting: 1.0
+0: 2024-12-10 20:09:51,860 - INFO - Using noise level: 0.01
+0: 2024-12-10 20:09:51,860 - INFO - Initialized SequenceTrainerAccelerate with dual loss functions and Gaussian noise.
+0: 2024-12-10 20:09:51,861 - INFO - Metadata saved to /sdf/data/ad/ard/u/tiffan/sequence_results/scgn/sequence_graph_data_archive_4/seq_init1_final21/knn_k5_weighted_r63_nt1000_b16_lr1e-03_h256_ly4_df0.90_hor1_nl0.01_lam1.0_ep100/metadata_20241210_200951.txt
+0: 2024-12-10 20:09:51,861 - INFO - Metadata saved to /sdf/data/ad/ard/u/tiffan/sequence_results/scgn/sequence_graph_data_archive_4/seq_init1_final21/knn_k5_weighted_r63_nt1000_b16_lr1e-03_h256_ly4_df0.90_hor1_nl0.01_lam1.0_ep100/metadata_20241210_200951.txt
+0: 2024-12-10 20:09:51,861 - INFO - Starting training...
+0: 2024-12-10 20:09:51,861 - INFO - Starting training...
+0: 2024-12-10 20:09:51,861 - INFO - Metadata saved to /sdf/data/ad/ard/u/tiffan/sequence_results/scgn/sequence_graph_data_archive_4/seq_init1_final21/knn_k5_weighted_r63_nt1000_b16_lr1e-03_h256_ly4_df0.90_hor1_nl0.01_lam1.0_ep100/metadata_20241210_200951.txt
+0: 2024-12-10 20:09:51,861 - INFO - Starting training...
+0: 2024-12-10 20:16:47,846 - INFO - Epoch 1/100, Loss: 3.1162e+06
+0: 2024-12-10 20:23:42,680 - INFO - Epoch 2/100, Loss: 1.2901e+03
+0: 2024-12-10 20:30:35,168 - INFO - Epoch 3/100, Loss: 4.5877e+02
+0: 2024-12-10 20:37:28,415 - INFO - Epoch 4/100, Loss: 2.0142e+02
+0: 2024-12-10 20:44:19,332 - INFO - Epoch 5/100, Loss: 3.5756e+02
+0: 2024-12-10 20:51:16,626 - INFO - Epoch 6/100, Loss: 6.3416e+05
+0: 2024-12-10 20:58:13,114 - INFO - Epoch 7/100, Loss: 1.1560e+00
+0: 2024-12-10 21:05:10,189 - INFO - Epoch 8/100, Loss: 1.1429e+00
+0: 2024-12-10 21:12:05,332 - INFO - Epoch 9/100, Loss: 1.1221e+00

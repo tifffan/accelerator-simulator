@@ -1,0 +1,19 @@
+0: 2024-12-10 18:03:36,524 - INFO - Using device: cuda
+0: 2024-12-10 18:03:36,524 - INFO - Graph data directory: /sdf/data/ad/ard/u/tiffan/data/sequence_graph_data_archive_4/knn_k5_weighted_graphs
+0: 2024-12-10 18:03:36,524 - INFO - Results will be saved to /sdf/data/ad/ard/u/tiffan/sequence_results/scgn/sequence_graph_data_archive_4/seq_init1_final21/knn_k5_weighted_r63_nt10000_b16_lr1e-03_h256_ly4_df0.90_hor1_nl0.01_lam1.0_ep100
+0: 2024-12-10 18:03:36,557 - INFO - Using device: cuda
+0: 2024-12-10 18:03:36,557 - INFO - Graph data directory: /sdf/data/ad/ard/u/tiffan/data/sequence_graph_data_archive_4/knn_k5_weighted_graphs
+0: 2024-12-10 18:03:36,557 - INFO - Results will be saved to /sdf/data/ad/ard/u/tiffan/sequence_results/scgn/sequence_graph_data_archive_4/seq_init1_final21/knn_k5_weighted_r63_nt10000_b16_lr1e-03_h256_ly4_df0.90_hor1_nl0.01_lam1.0_ep100
+0: 2024-12-10 18:03:36,559 - INFO - Using device: cuda
+0: 2024-12-10 18:03:36,559 - INFO - Graph data directory: /sdf/data/ad/ard/u/tiffan/data/sequence_graph_data_archive_4/knn_k5_weighted_graphs
+0: 2024-12-10 18:03:36,559 - INFO - Results will be saved to /sdf/data/ad/ard/u/tiffan/sequence_results/scgn/sequence_graph_data_archive_4/seq_init1_final21/knn_k5_weighted_r63_nt10000_b16_lr1e-03_h256_ly4_df0.90_hor1_nl0.01_lam1.0_ep100
+0: 2024-12-10 18:03:36,565 - INFO - Using device: cuda
+0: 2024-12-10 18:03:36,565 - INFO - Graph data directory: /sdf/data/ad/ard/u/tiffan/data/sequence_graph_data_archive_4/knn_k5_weighted_graphs
+0: 2024-12-10 18:03:36,565 - INFO - Results will be saved to /sdf/data/ad/ard/u/tiffan/sequence_results/scgn/sequence_graph_data_archive_4/seq_init1_final21/knn_k5_weighted_r63_nt10000_b16_lr1e-03_h256_ly4_df0.90_hor1_nl0.01_lam1.0_ep100
+0: 2024-12-10 18:03:36,569 - INFO - Model 'scgn' requires edge_attr: True
+0: 2024-12-10 18:03:36,570 - INFO - Model 'scgn' requires edge_attr: True
+0: 2024-12-10 18:03:36,570 - INFO - Model 'scgn' requires edge_attr: True
+0: 2024-12-10 18:03:36,570 - INFO - Model 'scgn' requires edge_attr: True
+srun: Job step aborted: Waiting up to 32 seconds for job step to finish.
+slurmstepd: error: *** JOB 60022155 ON sdfampere006 CANCELLED AT 2024-12-10T18:07:43 ***
+0: slurmstepd: error: *** STEP 60022155.0 ON sdfampere006 CANCELLED AT 2024-12-10T18:07:43 ***

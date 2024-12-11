@@ -641,7 +641,7 @@ class SequenceTrainerAccelerate(BaseTrainer):
             )
 
             # Compute actual log ratios
-            actual_log_ratios = torch.log((batch_target.scale + epsilon) / (batch_initial.scale + epsilon))  # [B, log_ratio_dim]
+            actual_log_ratios = torch.log(torch.abs((batch_target.scale + epsilon) / (batch_initial.scale + epsilon)))  # [B, log_ratio_dim]
 
             # Ensure actual_log_ratios has the same shape as predicted_log_ratios
             if actual_log_ratios.shape != predicted_log_ratios.shape:

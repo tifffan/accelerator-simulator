@@ -9,7 +9,7 @@
 #SBATCH --gpus-per-node=4
 #SBATCH --nodes=1
 #SBATCH --mem-per-cpu=16G
-#SBATCH --time=2:30:00
+#SBATCH --time=33:30:00
 
 # Set the PYTHONPATH to include your project directory
 export PYTHONPATH=/sdf/home/t/tiffan/repo/accelerator-simulator
@@ -31,27 +31,26 @@ python_command="src/graph_simulators/train.py \
     --data_keyword knn_k5_weighted \
     --base_data_dir /sdf/data/ad/ard/u/tiffan/data \
     --base_results_dir /sdf/data/ad/ard/u/tiffan/sequence_results \
-    --initial_step 1 \
-    --final_step 21 \
-    --ntrain 10 \
-    --nval 10 \
-    --ntest 10 \
+    --initial_step 0 \
+    --final_step 76 \
+    --ntrain 8000 \
+    --nval 1000 \
+    --ntest 1000 \
     --include_settings \
     --identical_settings \
     --include_position_index \
     --include_scaling_factors \
     --scaling_factors_file data/sequence_particles_data_archive_4_global_statistics.txt \
     --use_edge_attr \
-    --batch_size 4 \
+    --batch_size 16 \
     --lr 0.001 \
     --hidden_dim 256 \
     --num_layers 4 \
     --discount_factor 0.9 \
     --horizon 1 \
-    --nepochs 100 \
+    --nepochs 1000 \
     --noise_level 1e-2 \
     --lambda_ratio 1.0 \
-    --verbose \
     "
 
 # Print the command for verification

@@ -121,6 +121,7 @@ def parse_args():
                         help="Compute and include edge attributes for graphs (default: False).")
     parser.add_argument('--edge_attr_method', type=str, default='v1',
                         help="Method to compute edge attributes: 'v0', 'v1(n)', 'v2(n)', or 'v3'.")
+    parser.add_argument('--preload_data', action='store_true', help="Preload data into memory before training (default: False).")
     parser.add_argument('--mode', type=str, default='train', choices=['train', 'evaluate'], help="Mode to run.")
 
     parser.add_argument('--ntrain', type=int, required=True, help='Number of training graphs.')

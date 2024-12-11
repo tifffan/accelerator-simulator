@@ -42,7 +42,7 @@ python_command="src/graph_simulators/train.py \
     --include_scaling_factors \
     --scaling_factors_file data/sequence_particles_data_archive_4_global_statistics.txt \
     --use_edge_attr \
-    --batch_size 32 \
+    --batch_size 4 \
     --lr 0.001 \
     --hidden_dim 256 \
     --num_layers 4 \

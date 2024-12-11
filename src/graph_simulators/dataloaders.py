@@ -10,7 +10,6 @@ from torch_geometric.data import Batch
 
 from src.datasets.sequence_graph_position_scale_datasets import SequenceGraphSettingsPositionScaleDataset
 
-
 class SequenceGraphSettingsDataLoaders:
     def __init__(
         self,
@@ -25,9 +24,9 @@ class SequenceGraphSettingsDataLoaders:
         include_position_index=False,
         include_scaling_factors=False,
         scaling_factors_file=None,
-        task='predict_n6d',
-        edge_attr_method="v0",
-        preload_data=False,
+        # task='predict_n6d',  # Added task parameter
+        # edge_attr_method="v0",
+        # preload_data=False,
         batch_size=32,
         n_train=100,
         n_val=20,
@@ -37,24 +36,7 @@ class SequenceGraphSettingsDataLoaders:
         Initializes the SequenceGraphSettingsDataLoaders.
 
         Args:
-            graph_data_dir (str): Directory containing graph data organized by steps.
-            initial_step (int, optional): Starting step index. Defaults to 0.
-            final_step (int, optional): Ending step index. Defaults to 10.
-            max_prediction_horizon (int, optional): Maximum number of future steps to predict. Defaults to 3.
-            include_settings (bool, optional): Whether to include additional settings data. Defaults to False.
-            identical_settings (bool, optional): If True, uses a single settings file for all samples. Defaults to False.
-            use_edge_attr (bool, optional): Whether to compute and include edge attributes. Defaults to False.
-            subsample_size (int, optional): Number of samples to include. If None, includes all. Defaults to None.
-            include_position_index (bool, optional): Whether to include the normalized position index. Defaults to False.
-            include_scaling_factors (bool, optional): Whether to include scaling factors from a file. Defaults to False.
-            scaling_factors_file (str, optional): Path to the scaling factors text file. Defaults to None.
-            task (str, optional): Prediction task. One of ['predict_n6d', 'predict_n4d', 'predict_n2d']. Defaults to 'predict_n6d'.
-            edge_attr_method (str, optional): Method for edge attribute computation. Defaults to "v0".
-            preload_data (bool, optional): If True, preloads all data into memory. Defaults to False.
-            batch_size (int, optional): Batch size for the DataLoaders. Defaults to 32.
-            n_train (int, optional): Number of training graphs. Defaults to 100.
-            n_val (int, optional): Number of validation graphs. Defaults to 20.
-            n_test (int, optional): Number of testing graphs. Defaults to 20.
+            ... [Same as before] ...
         """
         # Initialize the dataset with provided parameters
         self.dataset = SequenceGraphSettingsPositionScaleDataset(
@@ -69,9 +51,9 @@ class SequenceGraphSettingsDataLoaders:
             include_position_index=include_position_index,
             include_scaling_factors=include_scaling_factors,
             scaling_factors_file=scaling_factors_file,
-            task=task,
-            edge_attr_method=edge_attr_method,
-            preload_data=preload_data
+            # task=task,  # Pass the task parameter
+            # edge_attr_method=edge_attr_method,
+            # preload_data=preload_data
         )
 
         logging.info(f"Dataset initialized with size: {len(self.dataset)}")
@@ -141,60 +123,87 @@ class SequenceGraphSettingsDataLoaders:
         else:
             # Fallback to idx if pattern does not match
             return idx
+        
+    # Flattening the dataset to pass one pair at a time
+    def _flatten_dataset(self, dataset):
+        flattened_dataset = []
+        for data_sequences in dataset:
+            flattened_dataset.extend(data_sequences)
+        logging.info(f"Total size of flattened data: {len(flattened_dataset)}")
+        return flattened_dataset
 
+    # Create the DataLoader with the custom collate function
     def _collate_fn(self, batch):
         """
         Custom collate function for DataLoader.
-        This version creates batched graph objects using PyTorch Geometric's Batch class.
-
-        Args:
-            batch (list of tuples): Each tuple contains (initial_graph, target_graph, seq_length)
-                                    or (initial_graph, target_graph, seq_length, settings_tensor) if settings are included.
-
-        Returns:
-            tuple: Batched initial graphs, batched target graphs, sequence lengths, and settings tensors (if included).
+        Each batch will contain multiple data tuples, each corresponding to one pair.
+        This function wraps each data tuple in a list to represent individual sequences.
         """
-        logging.debug("Custom collate_fn called.")
-
-        initial_graphs = []
-        target_graphs = []
-        seq_lengths = []
-        settings_list = []
-        include_settings = False
-
+        batch_sequences = []
         for sample in batch:
+            # Each sample is a tuple: (initial_graph, target_graph, seq_length, settings_tensor) or without settings
             if len(sample) == 4:
                 initial_graph, target_graph, seq_length, setting = sample
-                include_settings = True
-                settings_list.append(setting)
+                batch_sequences.append([initial_graph, target_graph, seq_length, setting])
             else:
                 initial_graph, target_graph, seq_length = sample
+                batch_sequences.append([initial_graph, target_graph, seq_length])
+        return batch_sequences
+    
+    # def _collate_fn(self, batch):
+    #     """
+    #     Custom collate function for DataLoader.
+    #     This function flattens the nested batch structure and batches the data accordingly.
 
-            initial_graphs.append(initial_graph)
-            target_graphs.append(target_graph)
-            seq_lengths.append(seq_length)
+    #     Args:
+    #         batch (list): A list where each element is a list of tuples returned by the dataset's __getitem__.
 
-        # Batched graphs
-        batch_initial = Batch.from_data_list(initial_graphs)
-        batch_target = Batch.from_data_list(target_graphs)
-        logging.debug("Batched initial and target graphs using Batch.from_data_list.")
+    #     Returns:
+    #         tuple: Batched initial graphs, batched target graphs, sequence lengths, and settings tensors (if included).
+    #     """
+    #     logging.debug("Custom collate_fn called.")
 
-        if include_settings:
-            settings_tensor = torch.stack(settings_list, dim=0)
-            logging.debug(f"Settings tensor created with shape: {settings_tensor.shape}")
-            return batch_initial, batch_target, torch.tensor(seq_lengths), settings_tensor
-        else:
-            return batch_initial, batch_target, torch.tensor(seq_lengths)
+    #     # Flatten the batch: list of lists to a single list
+    #     flattened = [item for sublist in batch for item in sublist]
+
+    #     # Determine if settings are included by checking the length of the first tuple
+    #     if len(flattened[0]) == 4:
+    #         # Each sample has: initial_graph, target_graph, seq_length, settings_tensor
+    #         initial_graphs, target_graphs, seq_lengths, settings_tensors = zip(*flattened)
+    #         include_settings = True
+    #     elif len(flattened[0]) == 3:
+    #         # Each sample has: initial_graph, target_graph, seq_length
+    #         initial_graphs, target_graphs, seq_lengths = zip(*flattened)
+    #         settings_tensors = None
+    #         include_settings = False
+    #     else:
+    #         raise ValueError(f"Unexpected sample format with {len(flattened[0])} elements.")
+
+    #     # Batch the initial and target graphs using torch_geometric's Batch
+    #     batch_initial = Batch.from_data_list(initial_graphs)
+    #     batch_target = Batch.from_data_list(target_graphs)
+    #     logging.debug("Batched initial and target graphs using Batch.from_data_list.")
+
+    #     # Convert sequence lengths to tensor
+    #     seq_lengths = torch.tensor(seq_lengths, dtype=torch.long)
+
+    #     if include_settings:
+    #         settings_tensor = torch.stack(settings_tensors, dim=0)
+    #         logging.debug(f"Settings tensor created with shape: {settings_tensor.shape}")
+    #         return batch_initial, batch_target, seq_lengths, settings_tensor
+    #     else:
+    #         return batch_initial, batch_target, seq_lengths
 
     def get_train_loader(self):
         if self._train_loader is None:
             self._train_loader = DataLoader(
-                self.train_set,
+                self._flatten_dataset(self.train_set),
                 batch_size=self.batch_size,
                 shuffle=True,  # Shuffle only the training data
-                num_workers=4,  # Adjust based on your system
+                num_workers=0,  # Reduced from 4 to mitigate open files error
                 pin_memory=True,
-                collate_fn=self.collate_fn
+                collate_fn=self.collate_fn,
+                persistent_workers=False  # Helps reduce open files
             )
             logging.info(f"Created training DataLoader with batch size {self.batch_size}.")
         return self._train_loader
@@ -202,12 +211,13 @@ class SequenceGraphSettingsDataLoaders:
     def get_val_loader(self):
         if self._val_loader is None:
             self._val_loader = DataLoader(
-                self.val_set,
+                self._flatten_dataset(self.val_set),
                 batch_size=self.batch_size,
                 shuffle=False,
-                num_workers=4,
+                num_workers=0,  # Reduced from 4
                 pin_memory=True,
-                collate_fn=self.collate_fn
+                collate_fn=self.collate_fn,
+                persistent_workers=False
             )
             logging.info(f"Created validation DataLoader with batch size {self.batch_size}.")
         return self._val_loader
@@ -215,12 +225,13 @@ class SequenceGraphSettingsDataLoaders:
     def get_test_loader(self):
         if self._test_loader is None:
             self._test_loader = DataLoader(
-                self.test_set,
+                self._flatten_dataset(self.test_set),
                 batch_size=self.batch_size,
                 shuffle=False,
-                num_workers=4,
+                num_workers=0,  # Reduced from 4
                 pin_memory=True,
-                collate_fn=self.collate_fn
+                collate_fn=self.collate_fn,
+                persistent_workers=False
             )
             logging.info(f"Created testing DataLoader with batch size {self.batch_size}.")
         return self._test_loader
@@ -235,12 +246,13 @@ class SequenceGraphSettingsDataLoaders:
         """
         if self._all_data_loader is None:
             self._all_data_loader = DataLoader(
-                self.dataset,
+                self._flatten_dataset(self.dataset),
                 batch_size=len(self.dataset),
                 shuffle=False,
-                num_workers=4,
+                num_workers=0,  # Reduced from 4
                 pin_memory=True,
-                collate_fn=self.collate_fn
+                collate_fn=self.collate_fn,
+                persistent_workers=False
             )
             logging.info(f"Created all-data DataLoader with batch size {len(self.dataset)}.")
         return self._all_data_loader

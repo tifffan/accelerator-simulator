@@ -293,6 +293,8 @@ import logging
 import os
 from pathlib import Path
 from accelerate import Accelerator
+from torch.optim import Optimizer
+
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
@@ -350,114 +352,325 @@ def identify_model_type(model):
         raise ValueError(f"Unrecognized model type: {type(model).__name__}")
 
 
+# class BaseTrainer:
+#     def __init__(self, model, train_loader, val_loader, optimizer, scheduler=None, device='cpu', **kwargs):
+#         self.accelerator = Accelerator()
+#         self.model_type = identify_model_type(model)
+#         logging.info(f"Identified model type: {self.model_type}")
+        
+#         self.model = model
+#         self.optimizer = optimizer
+#         self.scheduler = scheduler
+#         self.train_loader = train_loader
+#         self.val_loader = val_loader
+#         self.device = self.accelerator.device
+        
+#         self.start_epoch = 0
+#         self.nepochs = kwargs.get('nepochs', 100)
+#         self.save_checkpoint_every = kwargs.get('save_checkpoint_every', 10)
+#         self.results_folder = Path(kwargs.get('results_folder', './results'))
+#         self.results_folder.mkdir(parents=True, exist_ok=True)
+#         self.loss_history = []
+#         self.val_loss_history = []
+#         self.best_val_loss = float('inf')
+#         self.best_epoch = -1
+#         self.verbose = kwargs.get('verbose', False)
+
+#         self.checkpoints_folder = self.results_folder / 'checkpoints'
+#         self.checkpoints_folder.mkdir(parents=True, exist_ok=True)
+
+#         self.random_seed = kwargs.get('random_seed', 42)
+
+#         self.checkpoint = kwargs.get('checkpoint', None)
+#         if self.checkpoint:
+#             self.load_checkpoint(self.checkpoint)
+
+#         if self.scheduler:
+#             self.model, self.optimizer, self.scheduler, self.train_loader, self.val_loader = self.accelerator.prepare(
+#                 self.model, self.optimizer, self.scheduler, self.train_loader, self.val_loader)
+#         else:
+#             self.model, self.optimizer, self.train_loader, self.val_loader = self.accelerator.prepare(
+#                 self.model, self.optimizer, self.train_loader, self.val_loader)
+
+#     def train(self):
+#         logging.info("Starting training...")
+#         for epoch in range(self.start_epoch, self.nepochs):
+#             logging.info(f"Starting epoch {epoch+1}/{self.nepochs}")
+#             self.model.train()
+#             total_loss = 0
+#             if self.verbose and self.accelerator.is_main_process:
+#                 progress_bar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{self.nepochs}")
+#             else:
+#                 progress_bar = self.train_loader
+#             for batch_idx, batch in enumerate(progress_bar):
+#                 self.optimizer.zero_grad()
+#                 loss = self.train_step(batch)
+#                 self.accelerator.backward(loss)
+#                 self.optimizer.step()
+#                 total_loss += loss.item()
+#                 if self.verbose and self.accelerator.is_main_process:
+#                     current_loss = total_loss / (batch_idx + 1)
+#                     progress_bar.set_postfix(loss=current_loss)
+#                     logging.debug(f"Batch {batch_idx}: Loss = {current_loss:.4e}")
+            
+#             self.accelerator.wait_for_everyone()
+#             if self.scheduler:
+#                 self.scheduler.step()
+#                 current_lr = self.optimizer.param_groups[0]['lr']
+#                 logging.info(f"Epoch {epoch+1}: Learning rate adjusted to {current_lr}")
+
+#             avg_loss = total_loss / len(self.train_loader)
+#             self.loss_history.append(avg_loss)
+#             logging.info(f"Epoch {epoch+1}: Average Training Loss = {avg_loss:.4e}")
+
+#             if self.val_loader:
+#                 val_loss = self.validate()
+#                 self.val_loss_history.append(val_loss)
+#                 logging.info(f"Epoch {epoch+1}: Validation Loss = {val_loss:.4e}")
+#             else:
+#                 val_loss = None
+
+#             if (epoch + 1) % self.save_checkpoint_every == 0 or (epoch + 1) == self.nepochs:
+#                 self.save_checkpoint(epoch)
+#                 logging.info(f"Checkpoint saved at epoch {epoch+1}")
+
+#             if val_loss is not None and val_loss < self.best_val_loss:
+#                 self.best_val_loss = val_loss
+#                 self.best_epoch = epoch + 1
+#                 self.save_checkpoint(epoch, best=True)
+#                 logging.info(f"New best model at epoch {epoch+1}: Val Loss = {val_loss:.4e}")
+
+#         if self.accelerator.is_main_process:
+#             self.plot_loss_convergence()
+#             logging.info("Training complete!")
+#             logging.info(f"Best Val Loss = {self.best_val_loss:.4e} at epoch {self.best_epoch}")
+
+#     def validate(self):
+#         logging.info("Starting validation...")
+#         self.model.eval()
+#         val_loss = 0.0
+#         num_batches = 0
+#         with torch.no_grad():
+#             for batch in self.val_loader:
+#                 loss = self.validate_step(batch)
+#                 val_loss += loss.item()
+#                 num_batches += 1
+#                 logging.debug(f"Validation Batch: Loss = {loss.item():.4e}")
+        
+#         avg_val_loss = val_loss / num_batches
+#         logging.info(f"Validation completed: Average Loss = {avg_val_loss:.4e}")
+#         return avg_val_loss
+
+#     def train_step(self, data):
+#         raise NotImplementedError("Subclasses should implement this method.")
+
+#     def validate_step(self, data):
+#         self.model.eval()
+#         with torch.no_grad():
+#             loss = self.train_step(data)
+#         return loss
+
+#     def save_checkpoint(self, epoch, best=False):
+#         unwrapped_model = self.accelerator.unwrap_model(self.model)
+#         checkpoint_path = self.checkpoints_folder / ('best_model.pth' if best else f'model-{epoch}.pth')
+#         checkpoint_data = {
+#             'model_state_dict': unwrapped_model.state_dict(),
+#             'optimizer_state_dict': self.optimizer.state_dict(),
+#             'scheduler_state_dict': self.scheduler.state_dict() if self.scheduler else None,
+#             'epoch': epoch + 1,
+#             'random_seed': self.random_seed,
+#             'loss_history': self.loss_history,
+#             'val_loss_history': self.val_loss_history,
+#             'best_val_loss': self.best_val_loss,
+#             'best_epoch': self.best_epoch,
+#         }
+#         self.accelerator.wait_for_everyone()
+#         if self.accelerator.is_main_process:
+#             self.accelerator.save(checkpoint_data, checkpoint_path)
+#             logging.info(f"Checkpoint {'best model' if best else f'epoch {epoch}'} saved to {checkpoint_path}")
+
+#     def load_checkpoint(self, checkpoint_path):
+#         logging.info(f"Loading checkpoint from {checkpoint_path}")
+#         checkpoint = torch.load(checkpoint_path, map_location=self.device)
+#         self.model.load_state_dict(checkpoint['model_state_dict'])
+#         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+#         if self.scheduler and 'scheduler_state_dict' in checkpoint and checkpoint['scheduler_state_dict']:
+#             self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+#         self.start_epoch = checkpoint['epoch']
+#         self.loss_history = checkpoint.get('loss_history', [])
+#         self.val_loss_history = checkpoint.get('val_loss_history', [])
+#         self.best_val_loss = checkpoint.get('best_val_loss', float('inf'))
+#         self.best_epoch = checkpoint.get('best_epoch', -1)
+#         logging.info(f"Resumed training from epoch {self.start_epoch}, Best Val Loss = {self.best_val_loss:.4e}")
+
+#     def plot_loss_convergence(self):
+#         if self.accelerator.is_main_process:
+#             plt.figure(figsize=(10, 6))
+#             plt.plot(self.loss_history, label="Training Loss")
+#             if self.val_loss_history:
+#                 plt.plot(self.val_loss_history, label="Validation Loss")
+#             plt.xlabel("Epoch")
+#             plt.ylabel("Loss")
+#             plt.title("Loss Convergence")
+#             plt.legend()
+#             plt.grid(True)
+#             plt.savefig(self.results_folder / "loss_convergence.png")
+#             logging.info(f"Loss convergence plot saved to {self.results_folder / 'loss_convergence.png'}")
+#             plt.close()
+
 class BaseTrainer:
-    def __init__(self, model, train_loader, val_loader, optimizer, scheduler=None, device='cpu', **kwargs):
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        train_loader: torch.utils.data.DataLoader,
+        val_loader: torch.utils.data.DataLoader,
+        optimizer: Optimizer,
+        scheduler: torch.optim.lr_scheduler._LRScheduler = None,
+        device: str = 'cpu',
+        **kwargs,
+    ):
+        # Initialize the accelerator for distributed training
         self.accelerator = Accelerator()
+        self.device = self.accelerator.device
+
+        # Identify and store the model type
         self.model_type = identify_model_type(model)
         logging.info(f"Identified model type: {self.model_type}")
-        
+
         self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.train_loader = train_loader
         self.val_loader = val_loader
-        self.device = self.accelerator.device
-        
+
         self.start_epoch = 0
         self.nepochs = kwargs.get('nepochs', 100)
         self.save_checkpoint_every = kwargs.get('save_checkpoint_every', 10)
         self.results_folder = Path(kwargs.get('results_folder', './results'))
         self.results_folder.mkdir(parents=True, exist_ok=True)
+        self.checkpoints_folder = self.results_folder / 'checkpoints'
+        self.checkpoints_folder.mkdir(parents=True, exist_ok=True)
+
         self.loss_history = []
         self.val_loss_history = []
         self.best_val_loss = float('inf')
         self.best_epoch = -1
+
         self.verbose = kwargs.get('verbose', False)
-
-        self.checkpoints_folder = self.results_folder / 'checkpoints'
-        self.checkpoints_folder.mkdir(parents=True, exist_ok=True)
-
         self.random_seed = kwargs.get('random_seed', 42)
 
-        self.checkpoint = kwargs.get('checkpoint', None)
-        if self.checkpoint:
-            self.load_checkpoint(self.checkpoint)
+        # Handle checkpoint loading
+        checkpoint_path = kwargs.get('checkpoint')
+        if checkpoint_path:
+            self.load_checkpoint(checkpoint_path)
 
+        # Prepare the model, optimizer, scheduler, and dataloaders with Accelerator
+        prepare_args = [self.model, self.optimizer]
         if self.scheduler:
-            self.model, self.optimizer, self.scheduler, self.train_loader, self.val_loader = self.accelerator.prepare(
-                self.model, self.optimizer, self.scheduler, self.train_loader, self.val_loader)
+            prepare_args.append(self.scheduler)
+        prepare_args.extend([self.train_loader, self.val_loader])
+
+        prepared = self.accelerator.prepare(*prepare_args)
+        self.model, self.optimizer = prepared[:2]
+        if self.scheduler:
+            self.scheduler = prepared[2]
+            self.train_loader, self.val_loader = prepared[3], prepared[4]
         else:
-            self.model, self.optimizer, self.train_loader, self.val_loader = self.accelerator.prepare(
-                self.model, self.optimizer, self.train_loader, self.val_loader)
+            self.train_loader, self.val_loader = prepared[2], prepared[3]
 
     def train(self):
         logging.info("Starting training...")
         for epoch in range(self.start_epoch, self.nepochs):
-            logging.info(f"Starting epoch {epoch+1}/{self.nepochs}")
             self.model.train()
-            total_loss = 0
+            total_loss = 0.0
+
+            # Setup progress bar
             if self.verbose and self.accelerator.is_main_process:
-                progress_bar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{self.nepochs}")
+                progress_bar = tqdm(
+                    self.train_loader,
+                    desc=f"Epoch {epoch + 1}/{self.nepochs}",
+                    disable=not self.verbose,
+                )
             else:
                 progress_bar = self.train_loader
-            for batch_idx, batch in enumerate(progress_bar):
+
+            for batch_idx, data in enumerate(progress_bar):
                 self.optimizer.zero_grad()
-                loss = self.train_step(batch)
+                loss = self.train_step(data)
                 self.accelerator.backward(loss)
                 self.optimizer.step()
                 total_loss += loss.item()
+
                 if self.verbose and self.accelerator.is_main_process:
                     current_loss = total_loss / (batch_idx + 1)
-                    progress_bar.set_postfix(loss=current_loss)
-                    logging.debug(f"Batch {batch_idx}: Loss = {current_loss:.4e}")
-            
-            self.accelerator.wait_for_everyone()
+                    progress_bar.set_postfix(loss=f"{current_loss:.4e}")
+
+            # Scheduler step
             if self.scheduler:
                 self.scheduler.step()
                 current_lr = self.optimizer.param_groups[0]['lr']
-                logging.info(f"Epoch {epoch+1}: Learning rate adjusted to {current_lr}")
+                if self.verbose:
+                    logging.info(f"Epoch {epoch + 1}: Learning rate adjusted to {current_lr}")
 
+            # Record training loss
             avg_loss = total_loss / len(self.train_loader)
             self.loss_history.append(avg_loss)
-            logging.info(f"Epoch {epoch+1}: Average Training Loss = {avg_loss:.4e}")
 
+            # Validation
+            val_loss = None
             if self.val_loader:
                 val_loss = self.validate()
                 self.val_loss_history.append(val_loss)
-                logging.info(f"Epoch {epoch+1}: Validation Loss = {val_loss:.4e}")
-            else:
-                val_loss = None
 
+            # Logging
+            if self.accelerator.is_main_process:
+                if val_loss is not None:
+                    logging.info(
+                        f"Epoch {epoch + 1}/{self.nepochs}, "
+                        f"Loss: {avg_loss:.4e}, Val Loss: {val_loss:.4e}"
+                    )
+                else:
+                    logging.info(f"Epoch {epoch + 1}/{self.nepochs}, Loss: {avg_loss:.4e}")
+
+            # Save checkpoint
             if (epoch + 1) % self.save_checkpoint_every == 0 or (epoch + 1) == self.nepochs:
                 self.save_checkpoint(epoch)
-                logging.info(f"Checkpoint saved at epoch {epoch+1}")
 
+            # Save the best model based on validation loss
             if val_loss is not None and val_loss < self.best_val_loss:
+                logging.info(
+                    f"New best model found at epoch {epoch + 1} with Val Loss: {val_loss:.4e}"
+                )
                 self.best_val_loss = val_loss
                 self.best_epoch = epoch + 1
                 self.save_checkpoint(epoch, best=True)
-                logging.info(f"New best model at epoch {epoch+1}: Val Loss = {val_loss:.4e}")
 
+        # Finalize training
         if self.accelerator.is_main_process:
             self.plot_loss_convergence()
             logging.info("Training complete!")
-            logging.info(f"Best Val Loss = {self.best_val_loss:.4e} at epoch {self.best_epoch}")
+            logging.info(f"Best Val Loss: {self.best_val_loss:.4e} at epoch {self.best_epoch}")
 
-    def validate(self):
-        logging.info("Starting validation...")
+    def validate(self) -> float:
         self.model.eval()
         val_loss = 0.0
         num_batches = 0
+
         with torch.no_grad():
-            for batch in self.val_loader:
-                loss = self.validate_step(batch)
+            for data in self.val_loader:
+                loss = self.validate_step(data)
                 val_loss += loss.item()
                 num_batches += 1
-                logging.debug(f"Validation Batch: Loss = {loss.item():.4e}")
-        
-        avg_val_loss = val_loss / num_batches
-        logging.info(f"Validation completed: Average Loss = {avg_val_loss:.4e}")
-        return avg_val_loss
+
+        # Aggregate losses across all processes
+        total_val_loss = torch.tensor(val_loss, device=self.accelerator.device)
+        total_num_batches = torch.tensor(num_batches, device=self.accelerator.device)
+
+        total_val_loss = self.accelerator.gather(total_val_loss).sum()
+        total_num_batches = self.accelerator.gather(total_num_batches).sum()
+
+        avg_val_loss = total_val_loss / total_num_batches
+        return avg_val_loss.item()
 
     def train_step(self, data):
         raise NotImplementedError("Subclasses should implement this method.")
@@ -465,12 +678,13 @@ class BaseTrainer:
     def validate_step(self, data):
         self.model.eval()
         with torch.no_grad():
-            loss = self.train_step(data)
-        return loss
+            return self.train_step(data)
 
-    def save_checkpoint(self, epoch, best=False):
+    def save_checkpoint(self, epoch: int, best: bool = False):
         unwrapped_model = self.accelerator.unwrap_model(self.model)
-        checkpoint_path = self.checkpoints_folder / ('best_model.pth' if best else f'model-{epoch}.pth')
+        checkpoint_filename = 'best_model.pth' if best else f'model-{epoch + 1}.pth'
+        checkpoint_path = self.checkpoints_folder / checkpoint_filename
+
         checkpoint_data = {
             'model_state_dict': unwrapped_model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
@@ -482,39 +696,43 @@ class BaseTrainer:
             'best_val_loss': self.best_val_loss,
             'best_epoch': self.best_epoch,
         }
+
         self.accelerator.wait_for_everyone()
         if self.accelerator.is_main_process:
             self.accelerator.save(checkpoint_data, checkpoint_path)
-            logging.info(f"Checkpoint {'best model' if best else f'epoch {epoch}'} saved to {checkpoint_path}")
+            logging.info(f"Model checkpoint saved to {checkpoint_path}")
 
-    def load_checkpoint(self, checkpoint_path):
+    def load_checkpoint(self, checkpoint_path: str):
         logging.info(f"Loading checkpoint from {checkpoint_path}")
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
+
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        if self.scheduler and 'scheduler_state_dict' in checkpoint and checkpoint['scheduler_state_dict']:
+
+        if self.scheduler and checkpoint.get('scheduler_state_dict'):
             self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-        self.start_epoch = checkpoint['epoch']
+
+        self.start_epoch = checkpoint.get('epoch', 0)
+        self.random_seed = checkpoint.get('random_seed', self.random_seed)
         self.loss_history = checkpoint.get('loss_history', [])
         self.val_loss_history = checkpoint.get('val_loss_history', [])
         self.best_val_loss = checkpoint.get('best_val_loss', float('inf'))
         self.best_epoch = checkpoint.get('best_epoch', -1)
-        logging.info(f"Resumed training from epoch {self.start_epoch}, Best Val Loss = {self.best_val_loss:.4e}")
+
+        logging.info(f"Resumed training from epoch {self.start_epoch}")
 
     def plot_loss_convergence(self):
-        if self.accelerator.is_main_process:
-            plt.figure(figsize=(10, 6))
-            plt.plot(self.loss_history, label="Training Loss")
-            if self.val_loss_history:
-                plt.plot(self.val_loss_history, label="Validation Loss")
-            plt.xlabel("Epoch")
-            plt.ylabel("Loss")
-            plt.title("Loss Convergence")
-            plt.legend()
-            plt.grid(True)
-            plt.savefig(self.results_folder / "loss_convergence.png")
-            logging.info(f"Loss convergence plot saved to {self.results_folder / 'loss_convergence.png'}")
-            plt.close()
+        plt.figure(figsize=(10, 6))
+        plt.plot(self.loss_history, label="Training Loss")
+        if self.val_loss_history:
+            plt.plot(self.val_loss_history, label="Validation Loss")
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
+        plt.title("Loss Convergence")
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(self.results_folder / "loss_convergence.png")
+        plt.close()
 
 
 class SequenceTrainerAccelerate(BaseTrainer):

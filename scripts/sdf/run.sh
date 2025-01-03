@@ -55,6 +55,14 @@ HORIZON=1
 SCALING_FACTORS_FILE="data/sequence_particles_data_archive_4_global_statistics.txt"
 VERBOSE="--verbose"
 # VERBOSE=""
+RANDOM_SEED=63
+
+# Additional Parameters
+LR=1e-3
+LR_SCHEDULER="lin"
+LIN_START_EPOCH=10
+LIN_END_EPOCH=1000
+LIN_FINAL_LR=1e-5
 
 # Define the Python command with the updated config
 python_command="src/graph_simulators/train.py \
@@ -83,6 +91,11 @@ python_command="src/graph_simulators/train.py \
     --nepochs $NEPOCHS \
     --noise_level $NOISE_LEVEL \
     --lambda_ratio $LAMBDA_RATIO \
+    --lr_scheduler $LR_SCHEDULER \
+    --lin_start_epoch $((LIN_START_EPOCH * SLURM_JOB_NUM_NODES * SLURM_GPUS_PER_NODE)) \
+    --lin_end_epoch $((LIN_END_EPOCH * SLURM_JOB_NUM_NODES * SLURM_GPUS_PER_NODE)) \
+    --lin_final_lr $LIN_FINAL_LR \
+    --random_seed $RANDOM_SEED \
     $VERBOSE"
 
 # =============================================================================

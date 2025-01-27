@@ -1,0 +1,65 @@
+xopt:
+  max_evaluations: 30000
+  dump_file: dump_FACET_CNSGA.yaml
+  strict: False
+
+generator:
+    name: cnsga
+    population_size: 115
+    output_path: /sdf/data/ad/ard/u/tiffan/Data_5
+
+    # population_file: /sdf/data/ad/ard/u/zihanzhu/xopt/lume_impact/output/cnsga_population_2024-01-17T14:44:41.339869-08:00.csv 
+evaluator:
+    function: custom_evaluate_1256.custom_evaluate_impact_with_distgen
+    max_workers: 115
+    vectorized: False
+    function_kwargs:
+        workdir: /lscratch/tiffan
+        impact_config: ImpactT-241.yaml
+        distgen_input_file: distgen_Gaussian_Rotate_total_charge_500.yaml
+        archive_path: /sdf/data/ad/ard/u/tiffan/Archive_5
+
+vocs:
+    variables:
+        distgen:r_dist:sigma_xy:value: [1,2.5]
+        distgen:r_dist:truncation_radius:value: [2,3.5]
+        distgen:start:MTE:value: [100,1000]
+        distgen:t_dist:sigma_t:value: [0.8,1.5]
+        distgen:transforms:s1:scale: [0.6,1.4]
+        distgen:transforms:r1:angle:value: [-90,90]
+     
+
+    objectives: {end_norm_emit_x: MINIMIZE}
+    constraints:
+        # end_sigma_z: [LESS_THAN, 0.002]
+        end_norm_emit_x: [LESS_THAN, 20e-6]
+        end_n_particle_loss: [LESS_THAN, 500]
+        xopt_error: [LESS_THAN,1]
+        # #end_sigma_x: [LESS_THAN, 0.001]
+
+    constants:
+        distgen:n_particle: 2000
+        # timeout: 1000
+        header:Nx: 8
+        header:Ny: 8
+        header:Nz: 8
+        numprocs: 1
+        stop_1:s: 0.95
+        SOL10111:solenoid_field_scale: -0.25
+        CQ10121:b1_gradient: 0
+        SQ10122:b1_gradient: 0
+        # Past 241
+        # QA10361:b1_gradient: [-5,0]
+        # QA10371:b1_gradient: [0,5]
+        # QE10425:b1_gradient: [-10,0]
+        # QE10441:b1_gradient: [0,15]
+        # QE10511:b1_gradient: [0,10]
+        # QE10525:b1_gradient: [-10,0]
+        # L0AF_phase:theta0_deg: [-15,15]
+        # L0AF_scale:rf_field_scale: [28e6,33e6] 
+        # L0BF_phase:theta0_deg: [-30,30]
+        # L0BF_scale:rf_field_scale: [28e6,33e6]
+        GUNF:rf_field_scale: 49002593.0539
+        GUNF:theta0_deg: -60.7
+        distgen:total_charge: 1000
+        

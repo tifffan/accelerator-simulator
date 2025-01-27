@@ -34,7 +34,7 @@ cd /global/homes/t/tiffan/repo/accelerator-simulator
 start_time=$(date +%s)
 echo "Start time: $(date)"
 
-python_command="src/graph_simulators/train_accelerate.py   --model gcn   --dataset sequence_graph_data_archive_4   --initial_step 0   --final_step 2   --data_keyword knn_k5_weighted   --base_data_dir /pscratch/sd/t/tiffan/data   --base_results_dir ./results   --ntrain 10   --batch_size 4   --lr 0.001   --hidden_dim 64   --num_layers 3   --discount_factor 0.9   --horizon 2   --nepochs 5   --verbose"
+python_command="src/graph_simulators/train.py   --model scgn   --dataset sequence_graph_data_archive_4   --initial_step 0   --final_step 2   --data_keyword knn_k5_weighted   --base_data_dir /pscratch/sd/t/tiffan/data   --base_results_dir ./results   --ntrain 10  --nval 10 --ntest 10 --batch_size 4   --lr 0.001   --hidden_dim 64   --num_layers 3   --discount_factor 0.9   --horizon 1   --nepochs 5   --verbose"
 
 
 # Print the command for verification

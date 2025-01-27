@@ -98,8 +98,17 @@ def main():
         'singlescale', 'multiscale', 'multiscale-topk',
         'cgn', 'acgn', 'ggn', 'scgn' 
     ]
+    
+    # Determine if the model requires edge_attr
+    models_requiring_scale = [
+        'scgn' 
+    ]
+    
     use_edge_attr = args.model.lower() in models_requiring_edge_attr
     logging.info(f"Model '{args.model}' requires edge_attr: {use_edge_attr}")
+    
+    use_scale = args.model.lower() in models_requiring_scale
+    logging.info(f"Model '{args.model}' requires edge_attr: {use_scale}")
 
     
     # # Initialize dataset

@@ -134,6 +134,8 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=8, help="Batch size for training.")
     parser.add_argument('--hidden_dim', type=int, default=64, help="Hidden layer dimension size.")
     parser.add_argument('--num_layers', type=int, default=3, help="Number of layers in the model.")
+    parser.add_argument('--pool_ratios', type=float, nargs='+', default=[1.0], help="Pooling ratios for TopKPooling layers.")
+
     parser.add_argument('--random_seed', type=int, default=63, help="Random seed for reproducibility.")
     parser.add_argument('--verbose', action='store_true', help="Display progress bar while training.")
     parser.add_argument('--subsample_size', type=int, default=None, 

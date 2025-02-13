@@ -24,16 +24,16 @@ vocs:
         SOL10111:solenoid_field_scale: [-0.32, -0.2]
         CQ10121:b1_gradient: [-0.2,0.2]
         SQ10122:b1_gradient: [-0.2,0.2]
-        QA10361:b1_gradient: [-5,0]
-        QA10371:b1_gradient: [0,5]
-        QE10425:b1_gradient: [-10,0]
-        QE10441:b1_gradient: [0,15]
-        QE10511:b1_gradient: [0,10]
-        QE10525:b1_gradient: [-10,0]
-        L0AF_phase:theta0_deg: [-15,15]
-        L0AF_scale:rf_field_scale: [28e6,33e6] 
-        L0BF_phase:theta0_deg: [-30,30]
-        L0BF_scale:rf_field_scale: [28e6,33e6]
+        # QA10361:b1_gradient: [-5,0]
+        # QA10371:b1_gradient: [0,5]
+        # QE10425:b1_gradient: [-10,0]
+        # QE10441:b1_gradient: [0,15]
+        # QE10511:b1_gradient: [0,10]
+        # QE10525:b1_gradient: [-10,0]
+        # L0AF_phase:theta0_deg: [-15,15]
+        # L0AF_scale:rf_field_scale: [28e6,33e6] 
+        # L0BF_phase:theta0_deg: [-30,30]
+        # L0BF_scale:rf_field_scale: [28e6,33e6]
         GUNF:rf_field_scale: [46960818.3433, 53086142.475]
         GUNF:theta0_deg: [-70,-58]
         distgen:total_charge: [500,2500]
@@ -60,5 +60,5 @@ vocs:
         header:Ny: 8
         header:Nz: 8
         numprocs: 1
-        stop_1:s: 14.3,
+        stop_1:s: 0.95,
         

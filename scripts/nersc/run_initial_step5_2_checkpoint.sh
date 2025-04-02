@@ -2,7 +2,7 @@
 #SBATCH -A m669
 #SBATCH -C gpu
 #SBATCH -q regular
-#SBATCH -t 3:30:00
+#SBATCH -t 5:30:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=4
@@ -46,70 +46,8 @@ echo "Start time: $(date)"
 # Training Configuration
 # =============================================================================
 
-# Define the training configuration
-MODEL="scgn"
-DATASET="sequence_graph_data_archive_4"
-DATA_KEYWORD="knn_k5_weighted"
-BASE_DATA_DIR="/pscratch/sd/t/tiffan/data"
-BASE_RESULTS_DIR="/pscratch/sd/t/tiffan/sequence_results"
-INITIAL_STEP=0
-FINAL_STEP=76
-NTRAIN=80
-NVAL=10
-NTEST=10
-BATCH_SIZE=16
-NOISE_LEVEL=0.0 #0.01
-LAMBDA_RATIO=1.0
-NEPOCHS=100
-HIDDEN_DIM=128
-NUM_LAYERS=6
-DISCOUNT_FACTOR=1.0
-HORIZON=1
-SCALING_FACTORS_FILE="data/sequence_particles_data_archive_4_global_statistics.txt"
-VERBOSE="--verbose"
-# VERBOSE=""
-RANDOM_SEED=63
-
-# LR Parameters
-LR=1e-3
-LR_SCHEDULER="lin"
-LIN_START_EPOCH=10
-LIN_END_EPOCH=100
-LIN_FINAL_LR=1e-4
-
 # Define the Python command with the updated config
-python_command="src/graph_simulators/train.py \
-    --model $MODEL \
-    --dataset $DATASET \
-    --data_keyword $DATA_KEYWORD \
-    --base_data_dir $BASE_DATA_DIR \
-    --base_results_dir $BASE_RESULTS_DIR \
-    --initial_step $INITIAL_STEP \
-    --final_step $FINAL_STEP \
-    --include_settings \
-    --identical_settings \
-    --include_position_index \
-    --include_scaling_factors \
-    --scaling_factors_file /global/homes/t/tiffan/repo/accelerator-simulator/data/sequence_particles_data_archive_4_global_statistics.txt \
-    --use_edge_attr \
-    --ntrain $NTRAIN \
-    --nval $NVAL \
-    --ntest $NTEST \
-    --batch_size $BATCH_SIZE \
-    --lr $LR \
-    --hidden_dim $HIDDEN_DIM \
-    --num_layers $NUM_LAYERS \
-    --discount_factor $DISCOUNT_FACTOR \
-    --horizon $HORIZON \
-    --nepochs $NEPOCHS \
-    --noise_level $NOISE_LEVEL \
-    --lambda_ratio $LAMBDA_RATIO \
-    --lr_scheduler $LR_SCHEDULER \
-    --lin_start_epoch $((LIN_START_EPOCH * SLURM_JOB_NUM_NODES * SLURM_GPUS_PER_NODE)) \
-    --lin_end_epoch $((LIN_END_EPOCH * SLURM_JOB_NUM_NODES * SLURM_GPUS_PER_NODE)) \
-    --lin_final_lr $LIN_FINAL_LR \
-    --random_seed $RANDOM_SEED \
-    $VERBOSE"
+python_command="src/graph_simulators/train.py     --model scgn     --dataset sequence_graph_data_archive_4     --data_keyword knn_k5_weighted     --base_data_dir /pscratch/sd/t/tiffan/data     --base_results_dir /pscratch/sd/t/tiffan/sequence_results     --initial_step 5     --final_step 76     --include_settings     --identical_settings     --include_position_index     --include_scaling_factors     --scaling_factors_file /global/homes/t/tiffan/repo/accelerator-simulator/data/sequence_particles_data_archive_4_global_statistics.txt     --use_edge_attr     --ntrain 800     --nval 100     --ntest 100     --batch_size 16     --lr 1e-3     --hidden_dim 128     --num_layers 6     --discount_factor 1.0     --horizon 1     --nepochs 400     --noise_level 0.0     --lambda_ratio 1.0     --lr_scheduler lin     --lin_start_epoch 40     --lin_end_epoch 400     --lin_final_lr 1e-4     --random_seed 63  -checkpoint /pscratch/sd/t/tiffan/sequence_results/scgn/sequence_graph_data_archive_4/seq_init5_final76/knn_k5_weighted_r63_nt800_nv100_b16_lr1e-03_h128_ly6_df1.00_hor1_nl0.0_lam1.0_ep200_pr1.00_sch_lin_40_400_1e-04/checkpoints/model-200.pth"
 
 # =============================================================================
 

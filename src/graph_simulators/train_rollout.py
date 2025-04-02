@@ -1,21 +1,21 @@
-# train.py
+#!/usr/bin/env python3
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import Subset
-from torch.utils.data import DataLoader
+from torch.utils.data import Subset, DataLoader
 from torch_geometric.data import Batch
-
-import numpy as np
+from torch_geometric.data.data import DataEdgeAttr
+torch.serialization.add_safe_globals([DataEdgeAttr])
 import logging
 import os
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Import models and utilities
-from dataloaders import SequenceGraphSettingsDataLoaders
+# Import the rollout dataset and dataloaders
+from dataloaders_rollout import SequenceGraphSettingsDataLoaders
 
+# Import models and utilities
 from src.graph_models.models.graph_networks import (
     GraphConvolutionNetwork,
     GraphAttentionNetwork,
@@ -24,7 +24,7 @@ from src.graph_models.models.graph_networks import (
 )
 
 from src.graph_models.context_models.context_graph_networks import *
-from src.graph_models.context_models.scale_graph_networks import *
+from src.graph_models.context_models.scale_graph_networks import ScaleAwareLogRatioConditionalGraphNetwork
 
 from src.graph_simulators.utils import (
     generate_results_folder_name,
@@ -34,7 +34,7 @@ from src.graph_simulators.utils import (
 )
 from src.graph_simulators.config import parse_args
 
-from src.graph_simulators.trainers import SequenceTrainerAccelerate
+from trainers_rollout import SequenceTrainerAccelerate
 
 def is_autoencoder_model(model_name):
     """
@@ -79,33 +79,27 @@ def main():
     set_random_seed(args.random_seed)
     logging.info(f"Random seed set to: {args.random_seed}")
 
-    # Determine if the model requires edge_attr
+    # Determine if the model requires edge_attr / scale
     models_requiring_edge_attr = [
         'intgnn', 'gtr', 'mgn', 'gtr-ae', 'mgn-ae', 
         'singlescale', 'multiscale', 'multiscale-topk',
         'cgn', 'acgn', 'ggn', 'scgn' 
     ]
-    
-    # Determine if the model requires edge_attr
-    models_requiring_scale = [
-        'scgn' 
-    ]
+    models_requiring_scale = ['scgn']
     
     use_edge_attr = args.model.lower() in models_requiring_edge_attr
     logging.info(f"Model '{args.model}' requires edge_attr: {use_edge_attr}")
-    
     use_scale = args.model.lower() in models_requiring_scale
-    logging.info(f"Model '{args.model}' requires edge_attr: {use_scale}")
+    logging.info(f"Model '{args.model}' requires scale: {use_scale}")
     
-    # Initialize DataLoaders using the updated class
-    logging.info("Initializing SequenceGraphSettingsDataLoaders.")
-
+    # Initialize DataLoaders using the rollout dataset class
+    logging.info("Initializing SequenceGraphSettingsDataLoaders (rollout version).")
     try:
         data_loaders = SequenceGraphSettingsDataLoaders(
             graph_data_dir=graph_data_dir,
             initial_step=args.initial_step,
             final_step=args.final_step,
-            max_prediction_horizon=args.horizon,
+            max_prediction_horizon=args.horizon,  # horizon now defines max_prediction_horizon
             include_settings=args.include_settings,
             identical_settings=args.identical_settings,
             use_edge_attr=args.use_edge_attr,
@@ -113,15 +107,12 @@ def main():
             include_position_index=args.include_position_index,
             include_scaling_factors=args.include_scaling_factors,
             scaling_factors_file=args.scaling_factors_file,
-            # task=args.task, 
-            # edge_attr_method=args.edge_attr_method,
-            # preload_data=args.preload_data,
             batch_size=args.batch_size,
             n_train=args.ntrain,
             n_val=args.nval,
             n_test=args.ntest
         )
-        logging.info("SequenceGraphSettingsDataLoaders initialized successfully.")
+        logging.info("SequenceGraphSettingsDataLoaders (rollout) initialized successfully.")
     except Exception as e:
         logging.error(f"Failed to initialize DataLoaders: {e}")
         raise
@@ -130,30 +121,23 @@ def main():
     train_loader = data_loaders.get_train_loader()
     val_loader = data_loaders.get_val_loader()
     test_loader = data_loaders.get_test_loader()
-    # all_data_loader = data_loaders.get_all_data_loader()
 
     logging.info(f"Train DataLoader: {len(train_loader)} batches.")
     logging.info(f"Validation DataLoader: {len(val_loader)} batches.")
     logging.info(f"Test DataLoader: {len(test_loader)} batches.")
 
-    # Retrieve a Sample Data Batch for Model Initialization
+    # Retrieve a sample batch for model initialization.
+    # Note: Each sample from the dataset is now a tuple:
+    # (input_graph, target_graph_list, seq_length, [settings_list])
     logging.info("Retrieving a sample data batch for model initialization.")
-
     try:
         sample_batch = next(iter(train_loader))
         if args.include_settings:
-            batch_initial_graph, batch_target_graph, seq_lengths, settings_tensor = sample_batch
+            batch_initial_graph, batch_target_list, seq_lengths, settings_list = sample_batch
             logging.info("Sample Batch includes settings.")
-            logging.debug(f"Batch Initial Graphs: {batch_initial_graph}")
-            logging.debug(f"Batch Target Graphs: {batch_target_graph}")
-            logging.debug(f"Sequence Lengths: {seq_lengths}")
-            logging.debug(f"Settings Tensor: {settings_tensor}")
         else:
-            batch_initial_graph, batch_target_graph, seq_lengths = sample_batch
+            batch_initial_graph, batch_target_list, seq_lengths = sample_batch
             logging.info("Sample Batch does not include settings.")
-            logging.debug(f"Batch Initial Graphs: {batch_initial_graph}")
-            logging.debug(f"Batch Target Graphs: {batch_target_graph}")
-            logging.debug(f"Sequence Lengths: {seq_lengths}")
     except StopIteration:
         logging.error("Train DataLoader is empty. Cannot retrieve a sample batch.")
         raise
@@ -161,45 +145,24 @@ def main():
         logging.error(f"Failed to retrieve a sample batch: {e}")
         raise
 
-    logging.info(f"Train DataLoader: {len(train_loader)} batches.")
-    logging.info(f"Validation DataLoader: {len(val_loader)} batches.")
-    logging.info(f"Test DataLoader: {len(test_loader)} batches.")
-
-    # Retrieve a Sample Data Batch for Model Initialization
-    logging.info("Retrieving a sample data batch for model initialization.")
-
-    try:
-        sample_batch = next(iter(train_loader))
-        if args.include_settings:
-            batch_initial_graph, batch_target_graph, seq_lengths, settings_tensor = sample_batch
-            logging.info("Sample Batch includes settings.")
-            logging.debug(f"Batch Initial Graphs: {batch_initial_graph}")
-            logging.debug(f"Batch Target Graphs: {batch_target_graph}")
-            logging.debug(f"Sequence Lengths: {seq_lengths}")
-            logging.debug(f"Settings Tensor: {settings_tensor}")
-        else:
-            batch_initial_graph, batch_target_graph, seq_lengths = sample_batch
-            logging.info("Sample Batch does not include settings.")
-            logging.debug(f"Batch Initial Graphs: {batch_initial_graph}")
-            logging.debug(f"Batch Target Graphs: {batch_target_graph}")
-            logging.debug(f"Sequence Lengths: {seq_lengths}")
-    except StopIteration:
-        logging.error("Train DataLoader is empty. Cannot retrieve a sample batch.")
-        raise
-    except Exception as e:
-        logging.error(f"Failed to retrieve a sample batch: {e}")
-        raise
-
-    # Get a sample data for model initialization
-    logging.info("Retrieving sample data for model initialization.")
-    sample_initial_graph = train_loader.dataset[0][0]  # Assuming dataset[0] is a list containing one data tuple
-    sample_final_graph = train_loader.dataset[0][1]    # target_graph
+    # For model initialization, we need a sample input and a sample target.
+    # Now, batch_target_list is a list of batched target graphs for each horizon.
+    # We'll take the first target (horizon 0) to determine output dimension.
+    sample_initial_graph = train_loader.dataset[0][0]
+    sample_target_list = train_loader.dataset[0][1]  # This is a list of target graphs.
+    # Make sure there's at least one target graph.
+    if len(sample_target_list) == 0:
+        raise ValueError("No target graphs found in the sample.")
+    sample_target_graph = sample_target_list[0]
     if args.include_settings:
         logging.info("args.include_settings is True")
-        sample_settings = train_loader.dataset[0][3]
+        sample_settings_list = train_loader.dataset[0][3]  # This should be a list of settings tensors.
+        sample_settings = sample_settings_list[0]
+    else:
+        logging.info("args.include_settings is False")
 
     in_channels = sample_initial_graph.x.shape[1]
-    out_channels = sample_final_graph.x.shape[1]  # Assuming node features remain the same
+    out_channels = sample_target_graph.x.shape[1]
     logging.info(f"in_channels: {in_channels}, out_channels: {out_channels}")
 
     # Model initialization
@@ -213,14 +176,13 @@ def main():
             pool_ratios=args.pool_ratios,
         )
         logging.info("Initialized GraphConvolutionNetwork model.")
-        
     elif args.model.lower() == 'mgn':
         node_in_dim = sample_initial_graph.x.shape[1]
         edge_in_dim = sample_initial_graph.edge_attr.shape[1] if hasattr(sample_initial_graph, 'edge_attr') and sample_initial_graph.edge_attr is not None else 0
-        node_out_dim = sample_final_graph.x.shape[1]
+        node_out_dim = sample_target_graph.x.shape[1]
         hidden_dim = args.hidden_dim
         num_layers = args.num_layers
-
+        from src.graph_models.models.graph_networks import MeshGraphNet
         model = MeshGraphNet(
             node_in_dim=node_in_dim,
             edge_in_dim=edge_in_dim,
@@ -229,19 +191,17 @@ def main():
             num_layers=num_layers
         )
         logging.info("Initialized MeshGraphNet model.")
-
     elif args.model.lower() == 'scgn':
         node_in_dim = sample_initial_graph.x.shape[1]
         edge_in_dim = sample_initial_graph.edge_attr.shape[1] if hasattr(sample_initial_graph, 'edge_attr') and sample_initial_graph.edge_attr is not None else 0
-        node_out_dim = sample_final_graph.x.shape[1]
+        node_out_dim = sample_target_graph.x.shape[1]
+        # For condition input, if settings are included, use settings tensor shape.
         cond_in_dim = sample_settings.shape[0] if args.include_settings else 0
-        scale_dim = sample_initial_graph.scale.shape[1]  # Assuming scale has shape [scale_dim]
+        scale_dim = sample_initial_graph.scale.shape[1]
         hidden_dim = args.hidden_dim
         num_layers = args.num_layers
-        
         logging.info(f"cond_in_dim: {cond_in_dim}")
         logging.info(f"scale_dim: {scale_dim}")
-
         model = ScaleAwareLogRatioConditionalGraphNetwork(
             node_in_dim=node_in_dim,
             edge_in_dim=edge_in_dim,
@@ -250,10 +210,9 @@ def main():
             node_out_dim=node_out_dim,
             hidden_dim=hidden_dim,
             num_layers=num_layers,
-            log_ratio_dim=scale_dim  # Assuming log_ratio_dim equals scale_dim
+            log_ratio_dim=scale_dim
         )
         logging.info("Initialized ScaleAwareLogRatioConditionalGraphNetwork model.")
-
     else:
         logging.error(f"Model '{args.model}' is not implemented.")
         raise NotImplementedError(f"Model '{args.model}' is not implemented in this script.")
@@ -271,11 +230,11 @@ def main():
     if scheduler:
         logging.info("Initialized learning rate scheduler.")
 
-    # Define the loss functions
+    # Define the loss function
     criterion = torch.nn.MSELoss(reduction='none')
     logging.info("Defined MSE loss function.")
 
-    # Initialize trainer with the dual loss functions and Gaussian noise
+    # Initialize trainer with rollout horizon.
     trainer = SequenceTrainerAccelerate(
         model=model,
         train_loader=train_loader,
@@ -289,19 +248,18 @@ def main():
         device=device,
         verbose=args.verbose,
         criterion=criterion,
-        # criterion_nodes=criterion_nodes,
-        # criterion_log_ratios=criterion_log_ratios,
         discount_factor=args.discount_factor,
-        lambda_ratio=args.lambda_ratio,      # Ensure this argument is defined
-        noise_level=args.noise_level         # Ensure this argument is defined
+        lambda_ratio=args.lambda_ratio,
+        noise_level=args.noise_level,
+        horizon=args.horizon  # This should match max_prediction_horizon from the dataset.
     )
-    logging.info("Initialized SequenceTrainerAccelerate with dual loss functions and Gaussian noise.")
+    logging.info("Initialized SequenceTrainerAccelerate with rollout horizon.")
 
     # Save metadata
     save_metadata(args, model, results_folder)
     logging.info("Saved metadata.")
 
-    # Run train or evaluate
+    # Run training or evaluation
     if args.mode == 'train':
         logging.info("Starting training process.")
         trainer.train()

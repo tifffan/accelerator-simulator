@@ -4,8 +4,10 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import Subset, DataLoader
 from torch_geometric.data import Batch
-from torch_geometric.data.data import DataEdgeAttr
-torch.serialization.add_safe_globals([DataEdgeAttr])
+from torch_geometric.data.data import DataEdgeAttr, DataTensorAttr
+from torch_geometric.data.storage import GlobalStorage
+
+torch.serialization.add_safe_globals([DataEdgeAttr, DataTensorAttr, GlobalStorage])
 import logging
 import os
 

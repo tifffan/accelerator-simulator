@@ -2,8 +2,8 @@
 #SBATCH -A m669
 #SBATCH -C gpu
 #SBATCH -q regular
-#SBATCH -t 33:30:00
-#SBATCH --nodes=8
+#SBATCH -t 3:30:00
+#SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=64
@@ -61,7 +61,7 @@ BATCH_SIZE=16
 NOISE_LEVEL=0.0 #0.01
 LAMBDA_RATIO=1.0
 NEPOCHS=100
-HIDDEN_DIM=256
+HIDDEN_DIM=128
 NUM_LAYERS=6
 DISCOUNT_FACTOR=1.0
 HORIZON=1
@@ -74,8 +74,8 @@ RANDOM_SEED=63
 LR=1e-3
 LR_SCHEDULER="lin"
 LIN_START_EPOCH=10
-LIN_END_EPOCH=1000
-LIN_FINAL_LR=1e-5
+LIN_END_EPOCH=100
+LIN_FINAL_LR=1e-4
 
 # Define the Python command with the updated config
 python_command="src/graph_simulators/train.py \

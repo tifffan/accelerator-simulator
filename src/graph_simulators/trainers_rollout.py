@@ -348,7 +348,7 @@ class SequenceTrainerAccelerate(BaseTrainer):
         return predicted_node_features, predicted_log_ratios
 
     def update_graph_for_next_step(self, current_graph, predicted_node_features, predicted_log_ratios):
-        # Clone the graph and update the node features with the predictions.
+        # Clone the graph and update the node features and scale with the predictions.
         updated_graph = current_graph.clone()
         updated_graph.x = predicted_node_features
         updated_graph.scale = current_graph.scale * torch.exp(predicted_log_ratios)

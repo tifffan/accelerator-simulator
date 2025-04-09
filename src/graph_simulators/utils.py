@@ -40,10 +40,10 @@ def generate_results_folder_name(args):
     parts.append(f"lr{args.lr:.0e}")  # Format learning rate in scientific notation
     parts.append(f"h{args.hidden_dim}")
     parts.append(f"ly{args.num_layers}")
-    parts.append(f"df{args.discount_factor:.2f}")  # Add discount factor for sequence training
-    parts.append(f"hor{args.horizon}")  # Add prediction horizon
-    parts.append(f"nl{args.noise_level}")  # Add noise
-    parts.append(f"lam{args.lambda_ratio}")  # Add lambda ratio
+    parts.append(f"df{args.discount_factor:.2f}")  # Discount factor for sequence training
+    parts.append(f"hor{args.horizon}")  # Prediction horizon
+    parts.append(f"nl{args.noise_level}")  # Noise level
+    parts.append(f"lam{args.lambda_ratio}")  # Lambda ratio
     parts.append(f"ep{args.nepochs}")
 
     # Append pooling ratios if present
@@ -56,17 +56,13 @@ def generate_results_folder_name(args):
     elif args.lr_scheduler == 'lin':
         parts.append(f"sch_lin_{args.lin_start_epoch}_{args.lin_end_epoch}_{args.lin_final_lr:.0e}")
 
-    # Model-specific arguments
-    if args.model in {'gat', 'gat-ae'}:
-        parts.append(f"heads{args.gat_heads}")
-    elif args.model in {'gtr', 'gtr-ae'}:
-        parts.append(f"heads{args.gtr_heads}")
-        parts.append(f"concat{args.gtr_concat}")
-        parts.append(f"dropout{args.gtr_dropout}")
-    elif args.model in {'multiscale', 'multiscale-topk'}:
-        parts.append(f"mlph{args.multiscale_n_mlp_hidden_layers}")
-        parts.append(f"mmply{args.multiscale_n_mmp_layers}")
-        parts.append(f"mply{args.multiscale_n_message_passing_layers}")
+    # Append new features: positional encoding & scaling factors.
+    if args.include_position_index:
+        parts.append(f"pos_{args.position_encoding_method}")
+        if args.position_encoding_method in ["sinu", "learned"]:
+            parts.append(f"dim{args.sinusoidal_encoding_dim}")
+    if args.include_scaling_factors:
+        parts.append("scaling")
 
     # Combine parts to form the folder name
     folder_name = '_'.join(map(str, parts))

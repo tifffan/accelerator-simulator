@@ -26,7 +26,6 @@ from src.graph_models.models.graph_networks import (
 )
 
 from src.graph_models.context_models.context_graph_networks import *
-from src.graph_models.context_models.scale_graph_networks import ScaleAwareLogRatioConditionalGraphNetwork
 
 from src.graph_simulators.utils import (
     generate_results_folder_name,
@@ -94,7 +93,7 @@ def main():
     use_scale = args.model.lower() in models_requiring_scale
     logging.info(f"Model '{args.model}' requires scale: {use_scale}")
     
-    # Initialize DataLoaders using the rollout dataset class
+    # Initialize DataLoaders using the rollout dataset class with new positional encoding parameters.
     logging.info("Initializing SequenceGraphSettingsDataLoaders (rollout version).")
     try:
         data_loaders = SequenceGraphSettingsDataLoaders(
@@ -107,6 +106,8 @@ def main():
             use_edge_attr=args.use_edge_attr,
             subsample_size=args.subsample_size,
             include_position_index=args.include_position_index,
+            position_encoding_method=args.position_encoding_method,
+            sinusoidal_encoding_dim=args.sinusoidal_encoding_dim,
             include_scaling_factors=args.include_scaling_factors,
             scaling_factors_file=args.scaling_factors_file,
             batch_size=args.batch_size,
@@ -129,8 +130,6 @@ def main():
     logging.info(f"Test DataLoader: {len(test_loader)} batches.")
 
     # Retrieve a sample batch for model initialization.
-    # Note: Each sample from the dataset is now a tuple:
-    # (input_graph, target_graph_list, seq_length, [settings_list])
     logging.info("Retrieving a sample data batch for model initialization.")
     try:
         sample_batch = next(iter(train_loader))
@@ -148,11 +147,8 @@ def main():
         raise
 
     # For model initialization, we need a sample input and a sample target.
-    # Now, batch_target_list is a list of batched target graphs for each horizon.
-    # We'll take the first target (horizon 0) to determine output dimension.
     sample_initial_graph = train_loader.dataset[0][0]
     sample_target_list = train_loader.dataset[0][1]  # This is a list of target graphs.
-    # Make sure there's at least one target graph.
     if len(sample_target_list) == 0:
         raise ValueError("No target graphs found in the sample.")
     sample_target_graph = sample_target_list[0]
@@ -197,7 +193,6 @@ def main():
         node_in_dim = sample_initial_graph.x.shape[1]
         edge_in_dim = sample_initial_graph.edge_attr.shape[1] if hasattr(sample_initial_graph, 'edge_attr') and sample_initial_graph.edge_attr is not None else 0
         node_out_dim = sample_target_graph.x.shape[1]
-        # For condition input, if settings are included, use settings tensor shape.
         cond_in_dim = sample_settings.shape[0] if args.include_settings else 0
         scale_dim = sample_initial_graph.scale.shape[1]
         hidden_dim = args.hidden_dim

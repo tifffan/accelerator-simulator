@@ -12,8 +12,8 @@ from torch.optim import Optimizer
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-# Import model classes and context models as needed.
-from src.graph_models.context_models.scale_graph_networks import ScaleAwareLogRatioConditionalGraphNetwork
+# Import context-aware models as needed.
+from src.graph_models.context_models.context_graph_networks import ScaleAwareLogRatioConditionalGraphNetwork
 
 def identify_model_type(model):
     """

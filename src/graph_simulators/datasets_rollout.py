@@ -1,19 +1,19 @@
 # datasets_rollout.py
 
 import os
+import re
 import torch
 from torch.utils.data import Dataset
-from torch_geometric.data import Data
-import re
 
-MAX_STEP_INDEX = 76  # Used for normalizing position indices
+MAX_STEP_INDEX = 76
 
 class SequenceGraphSettingsRolloutDataset(Dataset):
     def __init__(self, graph_data_dir, initial_step=0, final_step=10, max_prediction_horizon=3,
                  include_settings=False, identical_settings=False,
                  use_edge_attr=False, subsample_size=None,
-                 include_position_index=False, include_scaling_factors=False,
-                 scaling_factors_file=None):
+                 include_position_index=False, position_encoding_method="normalized",
+                 sinusoidal_encoding_dim=64,
+                 include_scaling_factors=False, scaling_factors_file=None):
         """
         Initializes the dataset to return, for each sample, a tuple:
           (input_graph, target_graph_list, seq_length, settings_list)
@@ -22,6 +22,12 @@ class SequenceGraphSettingsRolloutDataset(Dataset):
           - target_graph_list: a list of subsequent graphs (up to max_prediction_horizon).
           - seq_length: number of target graphs available.
           - settings_list: a list of settings tensors for each target (if include_settings is True).
+        
+        The parameter `position_encoding_method` accepts:
+          - "normalized": a real number between 0 and 1 (default)
+          - "onehot": a one-hot vector of length MAX_STEP_INDEX + 1
+          - "sinu": sinusoidal positional encoding
+          - "learned": a learnable embedding for each step index
         """
         self.graph_data_dir = graph_data_dir
         self.initial_step = initial_step
@@ -33,6 +39,8 @@ class SequenceGraphSettingsRolloutDataset(Dataset):
         self.use_edge_attr = use_edge_attr
         self.subsample_size = subsample_size
         self.include_position_index = include_position_index
+        self.position_encoding_method = position_encoding_method
+        self.sinusoidal_encoding_dim = sinusoidal_encoding_dim
         self.include_scaling_factors = include_scaling_factors
         self.scaling_factors_file = scaling_factors_file
 
@@ -65,6 +73,37 @@ class SequenceGraphSettingsRolloutDataset(Dataset):
 
         if self.include_position_index:
             self.max_x = MAX_STEP_INDEX
+            if self.position_encoding_method == "learned":
+                # Create a learnable embedding for each possible step index.
+                self.pos_embedding = torch.nn.Embedding(num_embeddings=self.max_x + 1, embedding_dim=self.sinusoidal_encoding_dim)
+
+    # def get_sinusoidal_encoding(self, pos):
+    #     """
+    #     Computes a sinusoidal positional encoding for a given position.
+    #     """
+    #     d = self.sinusoidal_encoding_dim
+    #     encoding = torch.zeros(d, dtype=torch.float)
+    #     for i in range(d):
+    #         div_term = 10000 ** (2 * (i // 2) / d)
+    #         if i % 2 == 0:
+    #             encoding[i] = torch.sin(pos / div_term)
+    #         else:
+    #             encoding[i] = torch.cos(pos / div_term)
+    #     return encoding
+    def get_sinusoidal_encoding(self, pos):
+        """
+        Computes a sinusoidal positional encoding for a given position.
+        """
+        d = self.sinusoidal_encoding_dim
+        pos_tensor = torch.tensor(pos, dtype=torch.float)  # Convert pos to a tensor
+        encoding = torch.zeros(d, dtype=torch.float)
+        for i in range(d):
+            div_term = 10000 ** (2 * (i // 2) / d)
+            if i % 2 == 0:
+                encoding[i] = torch.sin(pos_tensor / div_term)
+            else:
+                encoding[i] = torch.cos(pos_tensor / div_term)
+        return encoding
 
     def _load_graph_paths(self):
         # For each step, list graph files; then zip across steps to form sequences.
@@ -194,8 +233,25 @@ class SequenceGraphSettingsRolloutDataset(Dataset):
                 augmented_settings_list = []
                 for delta in range(1, seq_length + 1):
                     step_index = self.initial_step + delta
-                    normalized_position = torch.tensor([step_index / self.max_x], dtype=torch.float)
-                    aug_setting = torch.cat([normalized_position, settings_tensor], dim=0)
+                    if self.position_encoding_method == "normalized":
+                        # Encode as a normalized real number.
+                        pos_encoding = torch.tensor([step_index / self.max_x], dtype=torch.float)
+                    elif self.position_encoding_method == "onehot":
+                        # One-hot encoding: vector length is max_x + 1.
+                        pos_encoding = torch.zeros(self.max_x + 1, dtype=torch.float)
+                        if step_index <= self.max_x:
+                            pos_encoding[step_index] = 1.0
+                        else:
+                            raise ValueError(f"step_index {step_index} exceeds maximum allowed index {self.max_x}")
+                    elif self.position_encoding_method == "sinu":
+                        # Sinusoidal positional encoding.
+                        pos_encoding = self.get_sinusoidal_encoding(step_index)
+                    elif self.position_encoding_method == "learned":
+                        # Learnable embedding for the step index.
+                        pos_encoding = self.pos_embedding(torch.tensor(step_index, dtype=torch.long))
+                    else:
+                        raise ValueError(f"Unknown position index encoding: {self.position_encoding_method}")
+                    aug_setting = torch.cat([pos_encoding, settings_tensor], dim=0)
                     augmented_settings_list.append(aug_setting)
                 settings_list = augmented_settings_list
             else:

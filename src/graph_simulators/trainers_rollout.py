@@ -12,8 +12,8 @@ from torch.optim import Optimizer
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-# Import model classes and context models as needed.
-from src.graph_models.context_models.scale_graph_networks import ScaleAwareLogRatioConditionalGraphNetwork
+# Import context-aware models as needed.
+from src.graph_models.context_models.context_graph_networks import ScaleAwareLogRatioConditionalGraphNetwork
 
 def identify_model_type(model):
     """
@@ -281,7 +281,7 @@ class SequenceTrainerAccelerate(BaseTrainer):
             total_loss += loss_h
 
             # Update current graph for next step.
-            current_graph = self.update_graph_for_next_step(current_graph, predicted_node_features)
+            current_graph = self.update_graph_for_next_step(current_graph, predicted_node_features, predicted_log_ratios)
 
         return total_loss
 
@@ -325,7 +325,7 @@ class SequenceTrainerAccelerate(BaseTrainer):
             discount = self.discount_factor ** h
             loss_h = discount * loss_per_graph.mean()
             total_loss += loss_h
-            current_graph = self.update_graph_for_next_step(current_graph, predicted_node_features)
+            current_graph = self.update_graph_for_next_step(current_graph, predicted_node_features, predicted_log_ratios)
         return total_loss
 
     def model_forward(self, initial_graph, settings_tensor, batch, model_type):
@@ -347,10 +347,9 @@ class SequenceTrainerAccelerate(BaseTrainer):
             raise NotImplementedError(f"Model type '{model_type}' is not supported.")
         return predicted_node_features, predicted_log_ratios
 
-    def update_graph_for_next_step(self, current_graph, predicted_node_features):
-        # Clone the graph and update the node features with the predictions.
+    def update_graph_for_next_step(self, current_graph, predicted_node_features, predicted_log_ratios):
+        # Clone the graph and update the node features and scale with the predictions.
         updated_graph = current_graph.clone()
         updated_graph.x = predicted_node_features
-        # Scale is kept unchanged here; modify as needed.
-        updated_graph.scale = current_graph.scale
+        updated_graph.scale = current_graph.scale * torch.exp(predicted_log_ratios)
         return updated_graph

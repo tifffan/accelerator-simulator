@@ -24,7 +24,6 @@ from src.graph_models.models.graph_networks import (
 )
 
 from src.graph_models.context_models.context_graph_networks import *
-from src.graph_models.context_models.scale_graph_networks import *
 
 from src.graph_simulators.utils import (
     generate_results_folder_name,

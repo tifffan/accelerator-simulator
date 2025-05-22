@@ -34,8 +34,8 @@ def parse_args():
     parser.add_argument('--include_position_index', action='store_true',
                         help="Include position index in settings (default: False).")
     parser.add_argument('--position_encoding_method', type=str, default="normalized",
-                        choices=["normalized", "onehot", "sinu", "learned"],
-                        help="Method for positional encoding: 'normalized', 'onehot', 'sinu', or 'learned'.")
+                        choices=["normalized", "onehot", "sinusoidal", "learned", "fieldmaps"],
+                        help="Method for positional encoding: 'normalized', 'onehot', 'sinusoidal', 'learned', or 'fieldmaps'.")
     parser.add_argument('--sinusoidal_encoding_dim', type=int, default=64,
                         help="Dimension of the sinusoidal (or learned) encoding for positional encoding.")
     parser.add_argument('--include_scaling_factors', action='store_true',

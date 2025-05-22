@@ -7,7 +7,7 @@ from torch_geometric.data import Batch
 from torch_geometric.data.data import DataEdgeAttr, DataTensorAttr
 from torch_geometric.data.storage import GlobalStorage
 
-torch.serialization.add_safe_globals([DataEdgeAttr, DataTensorAttr, GlobalStorage])
+# torch.serialization.add_safe_globals([DataEdgeAttr, DataTensorAttr, GlobalStorage])
 import logging
 import os
 
@@ -264,6 +264,11 @@ def main():
     else:
         logging.info("Evaluation mode is not implemented yet.")
         pass
+    
+    # Cleanup
+    if torch.distributed.is_initialized():
+        torch.distributed.destroy_process_group()
+
 
 if __name__ == "__main__":
     logging.info("Starting main execution.")

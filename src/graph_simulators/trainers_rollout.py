@@ -247,10 +247,15 @@ class SequenceTrainerAccelerate(BaseTrainer):
 
         # Iterate over each horizon step.
         for h, target_graph in enumerate(batch_targets):
-            if batch_settings is not None:
-                settings_tensor = batch_settings[h]
-            else:
-                settings_tensor = None
+            settings_tensor = batch_settings[h] if batch_settings is not None else None
+
+            # --- Risk Factor Checks Start ---
+            # Risk: The target graph might contain non-finite values.
+            if not torch.all(torch.isfinite(target_graph.x)):
+                logging.warning(f"Warning: target_graph.x contains non-finite values at horizon step {h}.")
+            if hasattr(target_graph, 'scale') and not torch.all(torch.isfinite(target_graph.scale)):
+                logging.warning(f"Warning: target_graph.scale contains non-finite values at horizon step {h}.")
+            # --- Risk Factor Checks End ---
 
             predicted_node_features, predicted_log_ratios = self.model_forward(
                 initial_graph=current_graph,
@@ -259,8 +264,19 @@ class SequenceTrainerAccelerate(BaseTrainer):
                 model_type=self.model_type
             )
 
+            # --- Check predictions for non-finite values ---
+            if not torch.all(torch.isfinite(predicted_node_features)):
+                logging.warning(f"Warning: predicted_node_features are non-finite at horizon step {h}.")
+            if not torch.all(torch.isfinite(predicted_log_ratios)):
+                logging.warning(f"Warning: predicted_log_ratios are non-finite at horizon step {h}.")
+
             # Compute actual log ratios from the scaling factors.
             actual_log_ratios = torch.log(torch.abs((target_graph.scale + epsilon) / (current_graph.scale + epsilon)))
+
+            # --- Check computed actual log ratios ---
+            if not torch.all(torch.isfinite(actual_log_ratios)):
+                logging.warning(f"Warning: actual_log_ratios are non-finite at horizon step {h}.")
+
             node_recon_loss_per_node = self.criterion(predicted_node_features, target_graph.x)
             if node_recon_loss_per_node.dim() > 1:
                 node_recon_loss_per_node = node_recon_loss_per_node.mean(dim=1)
@@ -297,10 +313,7 @@ class SequenceTrainerAccelerate(BaseTrainer):
         total_loss = 0.0
         current_graph = batch_initial
         for h, target_graph in enumerate(batch_targets):
-            if batch_settings is not None:
-                settings_tensor = batch_settings[h]
-            else:
-                settings_tensor = None
+            settings_tensor = batch_settings[h] if batch_settings is not None else None
 
             predicted_node_features, predicted_log_ratios = self.model_forward(
                 initial_graph=current_graph,

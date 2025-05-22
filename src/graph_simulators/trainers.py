@@ -34,16 +34,7 @@ from src.graph_models.models.multiscale.gnn import (
     MultiscaleGNN, 
     TopkMultiscaleGNN
 )
-
-# from src.graph_models.context_models.context_graph_networks import (
-#     ScaleAwareLogRatioConditionalGraphNetwork,
-#     GeneralGraphNetwork,
-#     ConditionalGraphNetwork,
-#     AttentionConditionalGraphNetwork
-# )
-
 from src.graph_models.context_models.context_graph_networks import *
-from src.graph_models.context_models.scale_graph_networks import *
 
 
 

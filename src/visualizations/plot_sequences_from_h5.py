@@ -239,12 +239,13 @@ if __name__ == "__main__":
 
     # Take the first HDF5 file found
     if h5_files:
-        h5_file_path = h5_files[0]
+        # h5_file_path = h5_files[0]
+        h5_file_path = h5_files[-1]
     else:
         raise FileNotFoundError(f"No HDF5 files found in directory: {archive_dir}")
     
     output_dir = f'figures/{os.path.basename(archive_dir)}/{os.path.basename(h5_file_path).replace(".h5", "")}/'
     subsample_size = 50  # Subsample size for particles
 
-    for step_size in [1, 2, 5, 10]:
+    for step_size in [1, 5, 10]:
         plot_particle_motion(h5_file_path, step_size=step_size, output_dir=output_dir, subsample_size=subsample_size, max_iterations=100)

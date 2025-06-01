@@ -149,50 +149,6 @@ class SequenceGraphSettingsDataLoaders:
                 initial_graph, target_graph, seq_length = sample
                 batch_sequences.append([initial_graph, target_graph, seq_length])
         return batch_sequences
-    
-    # def _collate_fn(self, batch):
-    #     """
-    #     Custom collate function for DataLoader.
-    #     This function flattens the nested batch structure and batches the data accordingly.
-
-    #     Args:
-    #         batch (list): A list where each element is a list of tuples returned by the dataset's __getitem__.
-
-    #     Returns:
-    #         tuple: Batched initial graphs, batched target graphs, sequence lengths, and settings tensors (if included).
-    #     """
-    #     logging.debug("Custom collate_fn called.")
-
-    #     # Flatten the batch: list of lists to a single list
-    #     flattened = [item for sublist in batch for item in sublist]
-
-    #     # Determine if settings are included by checking the length of the first tuple
-    #     if len(flattened[0]) == 4:
-    #         # Each sample has: initial_graph, target_graph, seq_length, settings_tensor
-    #         initial_graphs, target_graphs, seq_lengths, settings_tensors = zip(*flattened)
-    #         include_settings = True
-    #     elif len(flattened[0]) == 3:
-    #         # Each sample has: initial_graph, target_graph, seq_length
-    #         initial_graphs, target_graphs, seq_lengths = zip(*flattened)
-    #         settings_tensors = None
-    #         include_settings = False
-    #     else:
-    #         raise ValueError(f"Unexpected sample format with {len(flattened[0])} elements.")
-
-    #     # Batch the initial and target graphs using torch_geometric's Batch
-    #     batch_initial = Batch.from_data_list(initial_graphs)
-    #     batch_target = Batch.from_data_list(target_graphs)
-    #     logging.debug("Batched initial and target graphs using Batch.from_data_list.")
-
-    #     # Convert sequence lengths to tensor
-    #     seq_lengths = torch.tensor(seq_lengths, dtype=torch.long)
-
-    #     if include_settings:
-    #         settings_tensor = torch.stack(settings_tensors, dim=0)
-    #         logging.debug(f"Settings tensor created with shape: {settings_tensor.shape}")
-    #         return batch_initial, batch_target, seq_lengths, settings_tensor
-    #     else:
-    #         return batch_initial, batch_target, seq_lengths
 
     def get_train_loader(self):
         if self._train_loader is None:

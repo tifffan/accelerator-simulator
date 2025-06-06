@@ -19,8 +19,17 @@ def identify_model_type(model):
     """
     Identifies the type of the model and returns a string identifier.
     """
+    from src.graph_models.context_models.context_graph_networks import (
+        ScaleAwareLogRatioConditionalGraphNetwork,
+        ConditionalGraphNetwork,
+        ContextAwareGraphNetworkV0,
+    )
     if isinstance(model, ScaleAwareLogRatioConditionalGraphNetwork):
         return 'ScaleAwareLogRatioConditionalGraphNetwork'
+    if isinstance(model, ConditionalGraphNetwork):
+        return 'ConditionalGraphNetwork'
+    if isinstance(model, ContextAwareGraphNetworkV0):
+        return 'ContextAwareGraphNetworkV0'
     # Add further cases as needed.
     raise ValueError(f"Unrecognized model type: {type(model).__name__}")
 
@@ -140,7 +149,6 @@ class BaseTrainer:
             logging.info(f"Best Val Loss: {self.best_val_loss:.4e} at epoch {self.best_epoch}")
 
     def validate(self) -> float:
-        logging.info("Starting validation...")
         self.model.eval()
         total_loss = 0.0
         num_batches = 0
@@ -149,8 +157,18 @@ class BaseTrainer:
                 loss = self.validate_step(data)
                 total_loss += loss.item()
                 num_batches += 1
-        avg_val_loss = total_loss / num_batches
-        return avg_val_loss
+        avg_val_loss = total_loss / num_batches if num_batches > 0 else 0.0
+
+        # Convert to tensor and move to correct device
+        avg_val_loss_tensor = torch.tensor(avg_val_loss, device=self.device)
+
+        # Use accelerator to gather losses from all processes
+        gathered_losses = self.accelerator.gather(avg_val_loss_tensor)
+
+        # Average across all processes
+        global_avg_val_loss = gathered_losses.float().mean().item()
+
+        return global_avg_val_loss
 
     def train_step(self, data):
         raise NotImplementedError("Subclasses should implement this method.")
@@ -203,6 +221,7 @@ class BaseTrainer:
         plt.xlabel("Epoch")
         plt.ylabel("Loss")
         plt.title("Loss Convergence")
+        plt.yscale('log')
         plt.legend()
         plt.grid(True)
         plt.savefig(self.results_folder / "loss_convergence.png")
@@ -245,12 +264,10 @@ class SequenceTrainerAccelerate(BaseTrainer):
         total_loss = 0.0
         current_graph = batch_initial
 
-        # Iterate over each horizon step.
         for h, target_graph in enumerate(batch_targets):
             settings_tensor = batch_settings[h] if batch_settings is not None else None
 
             # --- Risk Factor Checks Start ---
-            # Risk: The target graph might contain non-finite values.
             if not torch.all(torch.isfinite(target_graph.x)):
                 logging.warning(f"Warning: target_graph.x contains non-finite values at horizon step {h}.")
             if hasattr(target_graph, 'scale') and not torch.all(torch.isfinite(target_graph.scale)):
@@ -264,34 +281,33 @@ class SequenceTrainerAccelerate(BaseTrainer):
                 model_type=self.model_type
             )
 
-            # --- Check predictions for non-finite values ---
             if not torch.all(torch.isfinite(predicted_node_features)):
                 logging.warning(f"Warning: predicted_node_features are non-finite at horizon step {h}.")
             if not torch.all(torch.isfinite(predicted_log_ratios)):
                 logging.warning(f"Warning: predicted_log_ratios are non-finite at horizon step {h}.")
 
-            # Compute actual log ratios from the scaling factors.
-            actual_log_ratios = torch.log(torch.abs((target_graph.scale + epsilon) / (current_graph.scale + epsilon)))
-
-            # --- Check computed actual log ratios ---
-            if not torch.all(torch.isfinite(actual_log_ratios)):
-                logging.warning(f"Warning: actual_log_ratios are non-finite at horizon step {h}.")
-
             node_recon_loss_per_node = self.criterion(predicted_node_features, target_graph.x)
             if node_recon_loss_per_node.dim() > 1:
                 node_recon_loss_per_node = node_recon_loss_per_node.mean(dim=1)
-            log_ratio_loss = self.criterion(predicted_log_ratios, actual_log_ratios)
-            if log_ratio_loss.dim() > 1:
-                log_ratio_loss = log_ratio_loss.mean(dim=1)
-
-            # Aggregate node loss to per-graph loss.
             node_recon_loss_per_graph = scatter_mean(
                 node_recon_loss_per_node,
                 current_graph.batch,
                 dim=0,
                 dim_size=current_graph.num_graphs
             )
-            loss_per_graph = node_recon_loss_per_graph + self.lambda_ratio * log_ratio_loss
+
+            if self.model_type == 'ScaleAwareLogRatioConditionalGraphNetwork':
+                # Compute actual log ratios from the scaling factors and log-ratio loss
+                actual_log_ratios = torch.log(torch.abs((target_graph.scale + epsilon) / (current_graph.scale + epsilon)))
+                if not torch.all(torch.isfinite(actual_log_ratios)):
+                    logging.warning(f"Warning: actual_log_ratios are non-finite at horizon step {h}.")
+                log_ratio_loss = self.criterion(predicted_log_ratios, actual_log_ratios)
+                if log_ratio_loss.dim() > 1:
+                    log_ratio_loss = log_ratio_loss.mean(dim=1)
+                loss_per_graph = node_recon_loss_per_graph + self.lambda_ratio * log_ratio_loss
+            else:
+                # For models that do not predict scale, only use node reconstruction loss
+                loss_per_graph = node_recon_loss_per_graph
             discount = self.discount_factor ** h
             loss_h = discount * loss_per_graph.mean()
             total_loss += loss_h
@@ -321,20 +337,23 @@ class SequenceTrainerAccelerate(BaseTrainer):
                 batch=current_graph.batch,
                 model_type=self.model_type
             )
-            actual_log_ratios = torch.log(torch.abs((target_graph.scale + epsilon) / (current_graph.scale + epsilon)))
             node_recon_loss_per_node = self.criterion(predicted_node_features, target_graph.x)
             if node_recon_loss_per_node.dim() > 1:
                 node_recon_loss_per_node = node_recon_loss_per_node.mean(dim=1)
-            log_ratio_loss = self.criterion(predicted_log_ratios, actual_log_ratios)
-            if log_ratio_loss.dim() > 1:
-                log_ratio_loss = log_ratio_loss.mean(dim=1)
             node_recon_loss_per_graph = scatter_mean(
                 node_recon_loss_per_node,
                 current_graph.batch,
                 dim=0,
                 dim_size=current_graph.num_graphs
             )
-            loss_per_graph = node_recon_loss_per_graph + self.lambda_ratio * log_ratio_loss
+            if self.model_type == 'ScaleAwareLogRatioConditionalGraphNetwork':
+                actual_log_ratios = torch.log(torch.abs((target_graph.scale + epsilon) / (current_graph.scale + epsilon)))
+                log_ratio_loss = self.criterion(predicted_log_ratios, actual_log_ratios)
+                if log_ratio_loss.dim() > 1:
+                    log_ratio_loss = log_ratio_loss.mean(dim=1)
+                loss_per_graph = node_recon_loss_per_graph + self.lambda_ratio * log_ratio_loss
+            else:
+                loss_per_graph = node_recon_loss_per_graph
             discount = self.discount_factor ** h
             loss_h = discount * loss_per_graph.mean()
             total_loss += loss_h
@@ -356,6 +375,20 @@ class SequenceTrainerAccelerate(BaseTrainer):
                 scale=scale,
                 batch=batch
             )
+        elif model_type in ['ConditionalGraphNetwork', 'ContextAwareGraphNetworkV0']:
+            x = initial_graph.x
+            edge_index = initial_graph.edge_index
+            edge_attr = initial_graph.edge_attr
+            conditions = settings_tensor
+            predicted_node_features = self.model(
+                x=x,
+                edge_index=edge_index,
+                edge_attr=edge_attr,
+                conditions=conditions,
+                batch=batch
+            )
+            # For compatibility, return zeros for log_ratios
+            predicted_log_ratios = torch.zeros_like(initial_graph.x[:, :1])
         else:
             raise NotImplementedError(f"Model type '{model_type}' is not supported.")
         return predicted_node_features, predicted_log_ratios
@@ -364,5 +397,7 @@ class SequenceTrainerAccelerate(BaseTrainer):
         # Clone the graph and update the node features and scale with the predictions.
         updated_graph = current_graph.clone()
         updated_graph.x = predicted_node_features
-        updated_graph.scale = current_graph.scale * torch.exp(predicted_log_ratios)
+        if self.model_type == 'ScaleAwareLogRatioConditionalGraphNetwork':
+            updated_graph.scale = current_graph.scale * torch.exp(predicted_log_ratios)
+        # For other models, do not update scale
         return updated_graph

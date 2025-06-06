@@ -43,7 +43,10 @@ def generate_results_folder_name(args):
     parts.append(f"df{args.discount_factor:.2f}")  # Discount factor for sequence training
     parts.append(f"hor{args.horizon}")  # Prediction horizon
     parts.append(f"nl{args.noise_level}")  # Noise level
-    parts.append(f"lam{args.lambda_ratio}")  # Lambda ratio
+    # Only include lambda_ratio for models that require it
+    models_without_lambda = ["cgnv0", "cdgn", "cgnv1"]
+    if hasattr(args, "lambda_ratio") and args.model.lower() not in models_without_lambda:
+        parts.append(f"lam{args.lambda_ratio}")  # Lambda ratio
     parts.append(f"ep{args.nepochs}")
 
     # Append pooling ratios if present

@@ -7,8 +7,8 @@ from torch_geometric.nn import MetaLayer, global_mean_pool
 from torch_scatter import scatter_mean
 
 class EdgeModel(nn.Module):
-    def __init__(self, edge_in_dim, node_in_dim, global_in_dim, edge_out_dim, hidden_dim):
-        super(EdgeModel, self).__init__()
+    def __init__(self, edge_in_dim, node_in_dim, edge_out_dim, hidden_dim):
+        super().__init__()
         self.edge_mlp = nn.Sequential(
             nn.Linear(edge_in_dim + 2 * node_in_dim, hidden_dim),
             nn.ReLU(),
@@ -16,24 +16,55 @@ class EdgeModel(nn.Module):
         )
 
     def forward(self, src, dest, edge_attr, u, batch):
-        # src: [E, node_in_dim]
-        # dest: [E, node_in_dim]
-        # edge_attr: [E, edge_in_dim]
-        # u: [B, global_in_dim] (not used directly here because we lack edge-to-graph mapping without edge_index)
-        # batch: [N], node-level batch mapping (not directly useful here without node indices)
-        
-        # We do not have direct access to edge-specific graph indices or node objects here.
-        # src and dest are just feature tensors, so we cannot do u_expanded = u[something].
-        # If we need u per edge, we must pass edge-to-graph mapping separately or preprocess edge_attr.
-        
+        # Ignore u for the basic version
         combined = torch.cat([src, dest, edge_attr], dim=1)
+        return self.edge_mlp(combined)
+
+class NodeModel(nn.Module):
+    def __init__(self, node_in_dim, edge_out_dim, node_out_dim, hidden_dim):
+        super().__init__()
+        self.node_mlp = nn.Sequential(
+            nn.Linear(node_in_dim + edge_out_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, node_out_dim)
+        )
+
+    def forward(self, x, edge_index, edge_attr, u, batch):
+        # Ignore u for the basic version
+        edge_attr_agg = scatter_mean(edge_attr, edge_index[0], dim=0, dim_size=x.size(0))
+        combined = torch.cat([x, edge_attr_agg], dim=1)
+        return self.node_mlp(combined)
+
+class EdgeModelWithGlobal(nn.Module):
+    def __init__(self, edge_in_dim, node_in_dim, global_in_dim, edge_out_dim, hidden_dim):
+        super(EdgeModelWithGlobal, self).__init__()
+        self.global_in_dim = global_in_dim
+        self.edge_mlp = nn.Sequential(
+            nn.Linear(edge_in_dim + 2 * node_in_dim + global_in_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, edge_out_dim)
+        )
+
+    def forward(self, src, dest, edge_attr, u, edge_batch):
+        """
+        src: [E, node_in_dim]
+        dest: [E, node_in_dim]
+        edge_attr: [E, edge_in_dim]
+        u: [B, global_in_dim]
+        edge_batch: [E] mapping each edge to a graph index (should be long/int)
+        """
+        if u is not None and self.global_in_dim > 0:
+            u_expanded = u[edge_batch]  # [E, global_in_dim]
+            combined = torch.cat([src, dest, edge_attr, u_expanded], dim=1)
+        else:
+            combined = torch.cat([src, dest, edge_attr], dim=1)
         out = self.edge_mlp(combined)
         return out
 
 
-class NodeModel(nn.Module):
+class NodeModelWithGlobal(nn.Module):
     def __init__(self, node_in_dim, edge_out_dim, global_in_dim, node_out_dim, hidden_dim):
-        super(NodeModel, self).__init__()
+        super(NodeModelWithGlobal, self).__init__()
         self.node_mlp = nn.Sequential(
             nn.Linear(node_in_dim + edge_out_dim + global_in_dim, hidden_dim),
             nn.ReLU(),
@@ -110,14 +141,14 @@ class ScaleAwareLogRatioConditionalGraphNetwork(nn.Module):
         # Processor: A sequence of MetaLayers with EdgeModel and NodeModel
         self.processor = nn.ModuleList()
         for _ in range(num_layers):
-            edge_model = EdgeModel(
+            edge_model = EdgeModelWithGlobal(
                 edge_in_dim=hidden_dim,
                 node_in_dim=hidden_dim,
                 global_in_dim=hidden_dim,
                 edge_out_dim=hidden_dim,
                 hidden_dim=hidden_dim
             )
-            node_model = NodeModel(
+            node_model = NodeModelWithGlobal(
                 node_in_dim=hidden_dim,
                 edge_out_dim=hidden_dim,
                 global_in_dim=hidden_dim,
@@ -143,7 +174,6 @@ class ScaleAwareLogRatioConditionalGraphNetwork(nn.Module):
     def forward(self, x, edge_index, edge_attr, conditions, scale, batch):
         """
         Forward pass for the ScaleAwareLogRatioConditionalGraphNetwork.
-        
         Args:
             x (Tensor): Node features [N, node_in_dim]
             edge_index (Tensor): Edge indices [2, E]
@@ -151,7 +181,6 @@ class ScaleAwareLogRatioConditionalGraphNetwork(nn.Module):
             conditions (Tensor): Global condition features [B, cond_in_dim]
             scale (Tensor): Scale features [B, scale_dim]
             batch (Tensor): Batch indices for nodes [N]
-        
         Returns:
             Tuple[Tensor, Tensor]: (Updated node features [N, node_out_dim], 
                                      Predicted log ratios [B, log_ratio_dim])
@@ -169,7 +198,10 @@ class ScaleAwareLogRatioConditionalGraphNetwork(nn.Module):
         # Apply message passing layers
         for layer in self.processor:
             x_res = x  # Residual connection
-            x, edge_attr, _ = layer(x, edge_index, edge_attr, u=u, batch=batch)
+            row, col = edge_index
+            edge_batch = batch[row]
+            edge_attr = layer.edge_model(x[row], x[col], edge_attr, u, edge_batch)
+            x = layer.node_model(x, edge_index, edge_attr, u, batch)
             x = x + x_res  # Residual connection
             
         # Aggregate node-level features for graph representation
@@ -190,3 +222,131 @@ class ScaleAwareLogRatioConditionalGraphNetwork(nn.Module):
         log_ratios = self.log_ratio_head(combined_global)  # [B, log_ratio_dim]
 
         return x, log_ratios
+
+
+class ConditionalGraphNetwork(nn.Module):
+    """MeshGraphNet variant that concatenates global condition to each node input."""
+    def __init__(self, node_in_dim, edge_in_dim, cond_in_dim, node_out_dim, hidden_dim, num_layers):
+        super(ConditionalGraphNetwork, self).__init__()
+        self.num_layers = num_layers
+        self.node_encoder = nn.Sequential(
+            nn.Linear(node_in_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim)
+        )
+        self.edge_encoder = nn.Sequential(
+            nn.Linear(edge_in_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim)
+        )
+        self.cond_encoder = nn.Sequential(
+            nn.Linear(cond_in_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim)
+        )
+        self.processor = nn.ModuleList()
+        for _ in range(num_layers):
+            edge_model = EdgeModelWithGlobal(
+                edge_in_dim=hidden_dim,
+                node_in_dim=hidden_dim,
+                global_in_dim=hidden_dim,
+                edge_out_dim=hidden_dim,
+                hidden_dim=hidden_dim
+            )
+            node_model = NodeModelWithGlobal(
+                node_in_dim=hidden_dim,
+                edge_out_dim=hidden_dim,
+                global_in_dim=hidden_dim,
+                node_out_dim=hidden_dim,
+                hidden_dim=hidden_dim
+            )
+            self.processor.append(MetaLayer(edge_model, node_model, None))
+        self.node_decoder = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, node_out_dim)
+        )
+
+    def forward(self, x, edge_index, edge_attr, conditions, batch):
+        """
+        Args:
+            x: [N, node_in_dim] node features
+            edge_index: [2, E] edge indices
+            edge_attr: [E, edge_in_dim] edge features
+            conditions: [B, cond_in_dim] global condition features
+            batch: [N] batch indices for nodes
+        Returns:
+            x: [N, node_out_dim] updated node features
+        """
+        x = self.node_encoder(x)
+        edge_attr = self.edge_encoder(edge_attr)
+        u = self.cond_encoder(conditions)  # [B, hidden_dim]
+        for layer in self.processor:
+            x_res = x
+            row, col = edge_index
+            edge_batch = batch[row]
+            edge_attr = layer.edge_model(x[row], x[col], edge_attr, u, edge_batch)
+            x = layer.node_model(x, edge_index, edge_attr, u, batch)
+            x = x + x_res
+        x = self.node_decoder(x)
+        return x
+
+
+class ContextAwareGraphNetworkV0(nn.Module):
+    """MeshGraphNet variant that concatenates global condition to each node input."""
+    def __init__(self, node_in_dim, edge_in_dim, cond_in_dim, node_out_dim, hidden_dim, num_layers):
+        super(ContextAwareGraphNetworkV0, self).__init__()
+        self.num_layers = num_layers
+        self.node_encoder = nn.Sequential(
+            nn.Linear(node_in_dim + cond_in_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim)
+        )
+        self.edge_encoder = nn.Sequential(
+            nn.Linear(edge_in_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim)
+        )
+        self.processor = nn.ModuleList()
+        for _ in range(num_layers):
+            edge_model = EdgeModel(
+                edge_in_dim=hidden_dim,
+                node_in_dim=hidden_dim,
+                edge_out_dim=hidden_dim,
+                hidden_dim=hidden_dim
+            )
+            node_model = NodeModel(
+                node_in_dim=hidden_dim,
+                edge_out_dim=hidden_dim,
+                node_out_dim=hidden_dim,
+                hidden_dim=hidden_dim
+            )
+            self.processor.append(MetaLayer(edge_model, node_model, None))
+        self.node_decoder = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, node_out_dim)
+        )
+
+    def forward(self, x, edge_index, edge_attr, conditions, batch):
+        """
+        Args:
+            x: [N, node_in_dim] node features
+            edge_index: [2, E] edge indices
+            edge_attr: [E, edge_in_dim] edge features
+            conditions: [B, cond_in_dim] global condition features
+            batch: [N] batch indices for nodes
+        Returns:
+            x: [N, node_out_dim] updated node features
+        """
+        # Broadcast conditions to nodes
+        cond_per_node = conditions[batch]  # [N, cond_in_dim]
+        x = torch.cat([x, cond_per_node], dim=1)  # [N, node_in_dim + cond_in_dim]
+        x = self.node_encoder(x)
+        edge_attr = self.edge_encoder(edge_attr)
+        for layer in self.processor:
+            x_res = x
+            x, edge_attr, _ = layer(x, edge_index, edge_attr, u=None, batch=batch)
+            x = x + x_res
+        x = self.node_decoder(x)
+        return x

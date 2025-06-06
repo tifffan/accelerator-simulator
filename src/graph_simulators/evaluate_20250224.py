@@ -123,7 +123,7 @@ def evaluate_one_step(sequence, step_idx, model, device, lambda_ratio, results_f
     title_text = f"Sample {sample_idx}: One-Step Transition: {step_idx} -> {step_idx+1}"
     filename = os.path.join(results_folder, f"sample_{sample_idx}_one_step_transition_{step_idx}_{step_idx+1}.png")
     plot_particle_groups(
-        pred_pg, target_pg, step_idx, '1step', results_folder, title=title_text,
+        pred_pg, target_pg, step_idx, title=title_text,
         mse_value=total_loss, rel_err_x=rel_err_x, rel_err_y=rel_err_y, rel_err_z=rel_err_z,
         filename=filename
     )
@@ -234,7 +234,7 @@ def rollout_evaluation(sequence, rollout_length, model, device, lambda_ratio, re
         
         filename = os.path.join(results_folder, f"sample_{sample_idx}_rollout_transition_{start_idx}_{start_idx+t+1}.png")
         plot_particle_groups(
-            pred_pg, gt_pg, start_idx+t+1, '', results_folder, title=title_text,
+            pred_pg, gt_pg, start_idx+t+1, title=title_text,
             mse_value=total_loss if total_loss is not None else 0,
             rel_err_x=rel_err_x,
             rel_err_y=rel_err_y,
@@ -307,6 +307,10 @@ def main():
     graph_data_dir = os.path.join(args.base_data_dir, args.dataset, f"{args.data_keyword}_graphs")
     logging.info(f"Graph data directory: {graph_data_dir}")
 
+    if not os.path.exists(args.results_folder):
+        os.mkdir(args.results_folder)
+    logging.info(f"Results will be saved to: {args.results_folder}")
+
     # Initialize the sequence dataset for evaluation.
     test_dataset = SequenceGraphSettingsPositionScaleSequenceDataset(
         graph_data_dir=graph_data_dir,
@@ -369,7 +373,6 @@ def main():
     plt.legend()
     
     error_plot_path = os.path.join(args.results_folder, 'error_vs_sample_index.png')
-    os.makedirs(args.results_folder, exist_ok=True)
     plt.savefig(error_plot_path, dpi=150)
     plt.close()
     logging.info(f"Saved aggregated error plot to {error_plot_path}")

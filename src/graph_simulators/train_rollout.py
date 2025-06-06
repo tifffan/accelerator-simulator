@@ -47,6 +47,39 @@ def main():
     args = parse_args()
     logging.info("Parsed command-line arguments.")
 
+    # Model-specific argument checks
+    models_without_lambda = ["cgnv0", "cdgn", "cgnv1"]
+    models_without_scale = ["cdgn", "cgnv0", "cgnv1"]
+    models_with_scale = ["scgn"]
+    models_without_pool = ["scgn", "cdgn", "cgnv0", "cgnv1"]  # Example: update as needed
+
+    # lambda_ratio
+    if args.model.lower() in models_without_lambda and hasattr(args, "lambda_ratio"):
+        if getattr(args, "lambda_ratio", None) not in (None, 1.0):
+            logging.warning(f"lambda_ratio is not used for model '{args.model}'. It will be ignored.")
+        delattr(args, "lambda_ratio")
+
+    # include_scaling_factors and scaling_factors_file
+    if args.model.lower() in models_with_scale:
+        if not getattr(args, "include_scaling_factors", False):
+            logging.warning(f"Model '{args.model}' requires --include_scaling_factors. It will be set to True.")
+            args.include_scaling_factors = True
+        if not getattr(args, "scaling_factors_file", None):
+            logging.warning(f"Model '{args.model}' requires --scaling_factors_file. Please provide a valid file.")
+    elif args.model.lower() in models_without_scale:
+        if getattr(args, "include_scaling_factors", False):
+            logging.warning(f"include_scaling_factors is not used for model '{args.model}'. It will be ignored.")
+            delattr(args, "include_scaling_factors")
+        if getattr(args, "scaling_factors_file", None):
+            logging.warning(f"scaling_factors_file is not used for model '{args.model}'. It will be ignored.")
+            delattr(args, "scaling_factors_file")
+
+    # pool_ratios (example: warn if set for models that do not use pooling)
+    if args.model.lower() in models_without_pool and hasattr(args, "pool_ratios"):
+        if getattr(args, "pool_ratios", None) not in (None, [1.0]):
+            logging.warning(f"pool_ratios is not used for model '{args.model}'. It will be ignored.")
+            delattr(args, "pool_ratios")
+
     # Validation for dependencies
     if args.include_scaling_factors and not args.scaling_factors_file:
         logging.error("Scaling factors file not specified while include_scaling_factors is True.")
@@ -210,6 +243,40 @@ def main():
             log_ratio_dim=scale_dim
         )
         logging.info("Initialized ScaleAwareLogRatioConditionalGraphNetwork model.")
+    elif args.model.lower() == 'cdgn':
+        node_in_dim = sample_initial_graph.x.shape[1]
+        edge_in_dim = sample_initial_graph.edge_attr.shape[1] if hasattr(sample_initial_graph, 'edge_attr') and sample_initial_graph.edge_attr is not None else 0
+        node_out_dim = sample_target_graph.x.shape[1]
+        cond_in_dim = sample_settings.shape[0] if args.include_settings else 0
+        hidden_dim = args.hidden_dim
+        num_layers = args.num_layers
+        from src.graph_models.context_models.context_graph_networks import ConditionalGraphNetwork
+        model = ConditionalGraphNetwork(
+            node_in_dim=node_in_dim,
+            edge_in_dim=edge_in_dim,
+            cond_in_dim=cond_in_dim,
+            node_out_dim=node_out_dim,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers
+        )
+        logging.info("Initialized ConditionalGraphNetwork model.")
+    elif args.model.lower() == 'cgnv0':
+        node_in_dim = sample_initial_graph.x.shape[1]
+        edge_in_dim = sample_initial_graph.edge_attr.shape[1] if hasattr(sample_initial_graph, 'edge_attr') and sample_initial_graph.edge_attr is not None else 0
+        node_out_dim = sample_target_graph.x.shape[1]
+        cond_in_dim = sample_settings.shape[0] if args.include_settings else 0
+        hidden_dim = args.hidden_dim
+        num_layers = args.num_layers
+        from src.graph_models.context_models.context_graph_networks import ContextAwareGraphNetworkV0
+        model = ContextAwareGraphNetworkV0(
+            node_in_dim=node_in_dim,
+            edge_in_dim=edge_in_dim,
+            cond_in_dim=cond_in_dim,
+            node_out_dim=node_out_dim,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers
+        )
+        logging.info("Initialized ContextAwareGraphNetworkV0 model.")
     else:
         logging.error(f"Model '{args.model}' is not implemented.")
         raise NotImplementedError(f"Model '{args.model}' is not implemented in this script.")
@@ -246,7 +313,6 @@ def main():
         verbose=args.verbose,
         criterion=criterion,
         discount_factor=args.discount_factor,
-        lambda_ratio=args.lambda_ratio,
         noise_level=args.noise_level,
         horizon=args.horizon  # This should match max_prediction_horizon from the dataset.
     )

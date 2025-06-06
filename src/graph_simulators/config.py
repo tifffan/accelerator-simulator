@@ -11,8 +11,9 @@ def parse_args():
         'gcn-ae', 'gat-ae', 'gtr-ae', 'mgn-ae', 
         'singlescale', 'multiscale', 'multiscale-topk',
         'cgn', 'acgn', 'ggn',
-        'scgn'
-    ], help="Model to train.")
+        'scgn',
+        'cdgn', 'cgnv0', 'cgnv1'
+    ], help="Model to train. Includes: intgnn, gcn, gat, gtr, mgn, gcn-ae, gat-ae, gtr-ae, mgn-ae, singlescale, multiscale, multiscale-topk, cgn, acgn, ggn, scgn, cdgn, cgnv0, cgnv1.")
     parser.add_argument('--data_keyword', type=str, required=True, 
                         help="Keyword to infer data directories (e.g., 'sequence_graph').")
     parser.add_argument('--base_data_dir', type=str, default="./data/",
@@ -67,9 +68,9 @@ def parse_args():
                         help="Number of samples to use from the dataset (default: all).")
     parser.add_argument('--horizon', type=int, default=5, 
                         help='Maximum prediction horizon for multi-step predictions (default: 5).')
-    parser.add_argument('--discount_factor', type=float, default=0.9, help='Discount factor for multi-step loss weighting')
+    parser.add_argument('--discount_factor', type=float, default=1.0, help='Discount factor for multi-step loss weighting')
     parser.add_argument('--noise_level', type=float, default=0.0, help='Standard deviation of Gaussian noise to add to initial node features (default: 0.0)')
-    parser.add_argument('--lambda_ratio', type=float, default=1.0, help='Weighting factor for log ratio loss (default: 1.0)')
+    parser.add_argument('--lambda_ratio', type=float, default=0.0, help='Weighting factor for log ratio loss (default: 1.0)')
 
     # Learning Rate Scheduler Arguments
     parser.add_argument('--lr_scheduler', type=str, choices=['none', 'exp', 'lin'], default='none',

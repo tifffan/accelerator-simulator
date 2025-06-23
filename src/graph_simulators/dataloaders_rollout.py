@@ -1,4 +1,4 @@
-# dataloaders_rollout.py
+# dataloaders_rollout_v2.py
 
 import os
 import logging
@@ -6,9 +6,13 @@ import torch
 from torch_geometric.loader import DataLoader
 from torch_geometric.data import Batch
 from torch.utils.data import Subset
-from datasets_rollout import SequenceGraphSettingsRolloutDataset
+from datasets_rollout import SequenceGraphSettingsDataset
 
 class SequenceGraphSettingsDataLoaders:
+    """
+    DataLoader class for rollout datasets using efficient sliding window batching.
+    Supports any horizon and any number of graph sequences.
+    """
     def __init__(
         self,
         graph_data_dir,
@@ -30,11 +34,11 @@ class SequenceGraphSettingsDataLoaders:
         n_test=20
     ):
         """
-        Initializes the DataLoaders using the rollout dataset.
+        Initializes the DataLoaders using the rollout dataset (sliding window version).
         Each sample from the dataset is a tuple:
            (input_graph, target_graph_list, seq_length, [settings_list])
         """
-        self.dataset = SequenceGraphSettingsRolloutDataset(
+        self.dataset = SequenceGraphSettingsDataset(
             graph_data_dir=graph_data_dir,
             initial_step=initial_step,
             final_step=final_step,
@@ -50,18 +54,25 @@ class SequenceGraphSettingsDataLoaders:
             scaling_factors_file=scaling_factors_file,
         )
 
-        logging.info(f"Dataset (rollout) initialized with size: {len(self.dataset)}")
+        logging.info(f"Dataset (rollout, sliding window) initialized with size: {len(self.dataset)}")
 
         # Create train, val, and test subsets using sorted indices.
-        sorted_indices = sorted(range(len(self.dataset)))  # or use a custom key if desired
+        sorted_indices = sorted(range(len(self.dataset)))
         total_samples = len(self.dataset)
         n_total = n_train + n_val + n_test
+
+        # print(f"[SPLIT INFO] n_train: {n_train}")
+        # print(f"[SPLIT INFO] n_val: {n_val}")
+        # print(f"[SPLIT INFO] n_test: {n_test}")
+        # print(f"[SPLIT INFO] Total: {n_train + n_val + n_test}")
+        # print(f"[SPLIT INFO] Dataset size: {len(self.dataset)}")
+
         if n_total > total_samples:
             raise ValueError(f"n_train + n_val + n_test ({n_total}) exceeds dataset size ({total_samples}).")
-        test_indices = sorted_indices[-n_test:]
-        remaining_indices = sorted_indices[:-n_test]
-        if n_train + n_val > len(remaining_indices):
-            raise ValueError("Not enough samples for train+val split.")
+        test_indices = sorted_indices[-n_test:] if n_test > 0 else []
+        remaining_indices = sorted_indices[:-n_test] if n_test > 0 else sorted_indices
+        # if n_train + n_val > len(remaining_indices):
+        #     raise ValueError("Not enough samples for train+val split.")
         train_indices = remaining_indices[:n_train]
         val_indices = remaining_indices[n_train:n_train + n_val]
 
@@ -70,6 +81,7 @@ class SequenceGraphSettingsDataLoaders:
         self.test_set = Subset(self.dataset, test_indices)
         self.batch_size = batch_size
 
+        
         self._train_loader = None
         self._val_loader = None
         self._test_loader = None
@@ -77,28 +89,13 @@ class SequenceGraphSettingsDataLoaders:
 
         logging.info(f"Initialized DataLoaders with {n_train} train, {n_val} val, and {n_test} test samples.")
 
-        # Use our custom collate function.
         self.collate_fn = self._collate_fn
 
     def _collate_fn(self, batch):
-        """
-        Custom collate function for rollout data.
-        Each sample is a tuple:
-           (input_graph, target_graph_list, seq_length, [settings_list])
-        This function batches:
-          - All input_graphs into a single batched graph.
-          - For the target graphs: for each horizon index h (from 0 up to max(seq_length)-1),
-            it collects the h-th target from each sample (if available) and batches them.
-          - It also collects the sequence lengths.
-          - If settings are included, it similarly batches the h-th settings tensor from each sample.
-        """
         include_settings = (len(batch[0]) == 4)
-        # Batch input graphs.
         input_graphs = [sample[0] for sample in batch]
         batched_input = Batch.from_data_list(input_graphs)
-        # Sequence lengths.
         seq_lengths = torch.tensor([sample[2] for sample in batch], dtype=torch.long)
-        # Determine the maximum horizon (number of targets) among samples.
         max_horizon = max(sample[2] for sample in batch)
         batched_targets = []
         if include_settings:
@@ -108,14 +105,12 @@ class SequenceGraphSettingsDataLoaders:
             if include_settings:
                 settings_h = []
             for sample in batch:
-                # sample[1] is target_graph_list and sample[2] is seq_length.
                 if sample[2] > h:
                     targets_h.append(sample[1][h])
                     if include_settings:
                         settings_h.append(sample[3][h])
             batched_targets.append(Batch.from_data_list(targets_h))
             if include_settings:
-                # settings are simple tensors; stack them.
                 batched_settings.append(torch.stack(settings_h, dim=0))
         if include_settings:
             return batched_input, batched_targets, seq_lengths, batched_settings
@@ -176,4 +171,4 @@ class SequenceGraphSettingsDataLoaders:
                 persistent_workers=False
             )
             logging.info(f"Created all-data DataLoader with batch size {len(self.dataset)}.")
-        return self._all_data_loader
+        return self._all_data_loader 

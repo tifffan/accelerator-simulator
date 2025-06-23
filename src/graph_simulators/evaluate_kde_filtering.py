@@ -34,9 +34,9 @@ from src.graph_models.context_models.scale_graph_networks import ScaleAwareLogRa
 from src.utils.plot_particle_groups import (
     plot_particle_groups_filename as plot_particle_groups,
     transform_to_particle_group,
-    compute_normalized_emittance_x,
-    compute_normalized_emittance_y,
-    compute_normalized_emittance_z
+    compute_emittance_x,
+    compute_emittance_y,
+    compute_emittance_z
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -97,9 +97,9 @@ def evaluate_one_step(sequence, step_idx, model, device, lambda_ratio, results_f
     tgt_pg  = transform_to_particle_group(torch.from_numpy(tgt_arr).float())
 
     # Compute emittance
-    ex_p, ex_t = compute_normalized_emittance_x(pred_pg), compute_normalized_emittance_x(tgt_pg)
-    ey_p, ey_t = compute_normalized_emittance_y(pred_pg), compute_normalized_emittance_y(tgt_pg)
-    ez_p, ez_t = compute_normalized_emittance_z(pred_pg), compute_normalized_emittance_z(tgt_pg)
+    ex_p, ex_t = compute_emittance_x(pred_pg), compute_emittance_x(tgt_pg)
+    ey_p, ey_t = compute_emittance_y(pred_pg), compute_emittance_y(tgt_pg)
+    ez_p, ez_t = compute_emittance_z(pred_pg), compute_emittance_z(tgt_pg)
 
     # Plot 2D histogram overlay
     fig, ax = plt.subplots(1, 3, figsize=(18, 5))

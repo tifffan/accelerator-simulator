@@ -117,7 +117,7 @@ def main():
     models_requiring_edge_attr = [
         'intgnn', 'gtr', 'mgn', 'gtr-ae', 'mgn-ae', 
         'singlescale', 'multiscale', 'multiscale-topk',
-        'cgn', 'acgn', 'ggn', 'scgn' 
+        'cgn', 'acgn', 'ggn', 'scgn', 'cgnv0'
     ]
     models_requiring_scale = ['scgn']
     

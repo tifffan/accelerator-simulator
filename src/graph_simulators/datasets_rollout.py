@@ -1,4 +1,4 @@
-# datasets_rollout.py
+# datasets_rollout_v2.py
 
 import os
 import re
@@ -9,7 +9,11 @@ from torch.utils.data import Dataset
 MAX_STEP_INDEX = 76
 FIELDMAP_FILE = "data/fieldmap_at_custom_step_values.csv"
 
-class SequenceGraphSettingsRolloutDataset(Dataset):
+class SequenceGraphSettingsDataset(Dataset):
+    """
+    Rollout dataset for graph sequences using efficient sliding window batching.
+    Supports any horizon and any number of graph sequences.
+    """
     def __init__(
         self,
         graph_data_dir,
@@ -24,24 +28,8 @@ class SequenceGraphSettingsRolloutDataset(Dataset):
         position_encoding_method="normalized",
         sinusoidal_encoding_dim=64,
         include_scaling_factors=False,
-        scaling_factors_file=None
+        scaling_factors_file=None,
     ):
-        """
-        Initializes the dataset to return, for each sample, a tuple:
-          (input_graph, target_graph_list, seq_length, settings_list)
-        where:
-          - input_graph: the graph at the first time step.
-          - target_graph_list: a list of subsequent graphs (up to max_prediction_horizon).
-          - seq_length: number of target graphs available.
-          - settings_list: a list of settings tensors for each target (if include_settings is True).
-
-        The parameter `position_encoding_method` accepts:
-          - "normalized"
-          - "onehot"
-          - "sinusoidal"
-          - "learned"
-          - "fieldmaps"
-        """
         self.graph_data_dir = graph_data_dir
         self.initial_step = initial_step
         self.final_step = final_step
@@ -57,7 +45,7 @@ class SequenceGraphSettingsRolloutDataset(Dataset):
         self.include_scaling_factors = include_scaling_factors
         self.scaling_factors_file = scaling_factors_file
 
-        # Load graph file paths
+        # Load graph file paths using efficient sliding window
         self.graph_paths = self._load_graph_paths()
         if self.subsample_size is not None:
             self.graph_paths = self.graph_paths[: self.subsample_size]
@@ -100,13 +88,10 @@ class SequenceGraphSettingsRolloutDataset(Dataset):
             elif self.position_encoding_method == "fieldmaps":
                 self.fieldmap_encoding = self._load_fieldmap(FIELDMAP_FILE)
 
+        # Add edge_attr cache
+        self.edge_attr_cache = {}
+
     def _load_fieldmap(self, filepath):
-        """
-        Reads FIELDMAP_FILE, returns a dict:
-          { step_index: [Solenoid Bz, Quadrupole Bz, RF Gun Ez], ... }
-        Assumes the first CSV row is the header with columns:
-          "z (m)", "Solenoid Bz (T)", "Quadrupole Bz (T)", "RF Gun Ez (V/m)"
-        """
         fieldmap = {}
         with open(filepath, newline='') as f:
             reader = csv.reader(f)
@@ -129,9 +114,6 @@ class SequenceGraphSettingsRolloutDataset(Dataset):
         return fieldmap
 
     def get_sinusoidal_encoding(self, pos):
-        """
-        Computes a sinusoidal positional encoding for a given position.
-        """
         d = self.sinusoidal_encoding_dim
         pos_tensor = torch.tensor(pos, dtype=torch.float)
         encoding = torch.zeros(d, dtype=torch.float)
@@ -155,7 +137,21 @@ class SequenceGraphSettingsRolloutDataset(Dataset):
             files = sorted(os.listdir(dir), key=self._extract_graph_x)
             files = [os.path.join(dir, f) for f in files if f.endswith('.pt') and not f.endswith('_settings.pt')]
             graph_paths_per_step.append(files)
-        return list(zip(*graph_paths_per_step))
+        # Efficient sliding window approach
+        num_graphs = len(graph_paths_per_step[0])
+        all_sequences = [
+            [graph_paths_per_step[step][g] for step in range(len(graph_paths_per_step))]
+            for g in range(num_graphs)
+        ]
+        graph_paths = []
+        for seq in all_sequences:
+            for i in range(len(seq) - self.max_prediction_horizon):
+                graph_paths.append(tuple(seq[i:i+1+self.max_prediction_horizon]))
+        # print(f"Number of steps: {len(graph_paths_per_step)}")
+        # print(f"Number of graphs per step: {num_graphs}")
+        # print(f"Expected number of samples: {num_graphs * (len(graph_paths_per_step) - self.max_prediction_horizon)}")
+        # print(f"Actual number of samples: {len(graph_paths)}")
+        return graph_paths
 
     def _extract_graph_x(self, filename):
         match = re.search(r'graph_(\d+)\.pt', filename)
@@ -239,10 +235,24 @@ class SequenceGraphSettingsRolloutDataset(Dataset):
     def __getitem__(self, idx):
         sequence = self.graph_paths[idx]
         data_list = [torch.load(p) for p in sequence]
+        # Ensure every Data object has 'pos'
         for d in data_list:
-            if self.use_edge_attr:
-                self._compute_edge_attr(d)
+            if not hasattr(d, 'pos') or d.pos is None:
+                if hasattr(d, 'x') and d.x is not None and d.x.shape[1] >= 3:
+                    d.pos = d.x[:, :3]
+                else:
+                    raise ValueError("Data object is missing 'pos' and cannot infer from 'x'")
+        if self.use_edge_attr:
+            input_graph_path = sequence[0]
+            if input_graph_path in self.edge_attr_cache:
+                data_list[0].edge_attr = self.edge_attr_cache[input_graph_path]
             else:
+                self._compute_edge_attr(data_list[0])
+                self.edge_attr_cache[input_graph_path] = data_list[0].edge_attr
+            for d in data_list[1:]:
+                d.edge_attr = None
+        else:
+            for d in data_list:
                 d.edge_attr = None
 
         input_graph = data_list[0]
@@ -294,4 +304,4 @@ class SequenceGraphSettingsRolloutDataset(Dataset):
 
         if self.include_settings:
             return (input_graph, target_graph_list, seq_length, settings_list)
-        return (input_graph, target_graph_list, seq_length)
+        return (input_graph, target_graph_list, seq_length) 

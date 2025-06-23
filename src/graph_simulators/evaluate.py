@@ -38,9 +38,9 @@ from src.graph_models.context_models.scale_graph_networks import ScaleAwareLogRa
 from src.utils.plot_particle_groups import (
     plot_particle_groups_filename as plot_particle_groups,
     transform_to_particle_group,
-    compute_normalized_emittance_x,
-    compute_normalized_emittance_y,
-    compute_normalized_emittance_z
+    compute_emittance_x,
+    compute_emittance_y,
+    compute_emittance_z
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -107,16 +107,16 @@ def evaluate_one_step(sequence, step_idx, model, device, lambda_ratio, results_f
     pred_pg = transform_to_particle_group(predicted_inv.detach().cpu())
     target_pg = transform_to_particle_group(target_inv.detach().cpu())
     
-    pred_norm_emit_x = compute_normalized_emittance_x(pred_pg)
-    target_norm_emit_x = compute_normalized_emittance_x(target_pg)
+    pred_norm_emit_x = compute_emittance_x(pred_pg)
+    target_norm_emit_x = compute_emittance_x(target_pg)
     rel_err_x = abs(pred_norm_emit_x - target_norm_emit_x) / abs(target_norm_emit_x)
     
-    pred_norm_emit_y = compute_normalized_emittance_y(pred_pg)
-    target_norm_emit_y = compute_normalized_emittance_y(target_pg)
+    pred_norm_emit_y = compute_emittance_y(pred_pg)
+    target_norm_emit_y = compute_emittance_y(target_pg)
     rel_err_y = abs(pred_norm_emit_y - target_norm_emit_y) / abs(target_norm_emit_y)
     
-    pred_norm_emit_z = compute_normalized_emittance_z(pred_pg)
-    target_norm_emit_z = compute_normalized_emittance_z(target_pg)
+    pred_norm_emit_z = compute_emittance_z(pred_pg)
+    target_norm_emit_z = compute_emittance_z(target_pg)
     rel_err_z = abs(pred_norm_emit_z - target_norm_emit_z) / abs(target_norm_emit_z)
     
     # Save visualization with a filename that includes the sample index.
@@ -215,16 +215,16 @@ def rollout_evaluation(sequence, rollout_length, model, device, lambda_ratio, re
         gt_pg = transform_to_particle_group(gt_inv.detach().cpu()) if gt_inv is not None else None
         
         if total_loss is not None:
-            pred_norm_emit_x = compute_normalized_emittance_x(pred_pg)
-            gt_norm_emit_x = compute_normalized_emittance_x(gt_pg)
+            pred_norm_emit_x = compute_emittance_x(pred_pg)
+            gt_norm_emit_x = compute_emittance_x(gt_pg)
             rel_err_x = abs(pred_norm_emit_x - gt_norm_emit_x) / abs(gt_norm_emit_x)
     
-            pred_norm_emit_y = compute_normalized_emittance_y(pred_pg)
-            gt_norm_emit_y = compute_normalized_emittance_y(gt_pg)
+            pred_norm_emit_y = compute_emittance_y(pred_pg)
+            gt_norm_emit_y = compute_emittance_y(gt_pg)
             rel_err_y = abs(pred_norm_emit_y - gt_norm_emit_y) / abs(gt_norm_emit_y)
     
-            pred_norm_emit_z = compute_normalized_emittance_z(pred_pg)
-            gt_norm_emit_z = compute_normalized_emittance_z(gt_pg)
+            pred_norm_emit_z = compute_emittance_z(pred_pg)
+            gt_norm_emit_z = compute_emittance_z(gt_pg)
             rel_err_z = abs(pred_norm_emit_z - gt_norm_emit_z) / abs(gt_norm_emit_z)
     
             title_text = f"Rollout: {start_idx} -> {start_idx+t+1}"

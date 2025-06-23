@@ -53,9 +53,9 @@ def plot_particle_groups(pred_pg, target_pg, idx, error_type, results_folder,
 
     # Add annotation with MSE and relative errors at the bottom of the figure
     annotation_text = (f"MSE: {mse_value:.4f}\n"
-                       f"Rel. Error norm_emit_x: {rel_err_x:.4f}\n"
-                       f"Rel. Error norm_emit_y: {rel_err_y:.4f}\n"
-                       f"Rel. Error norm_emit_z: {rel_err_z:.4f}")
+                       f"Relative Error in Emittance X: {rel_err_x:.4f}\n"
+                       f"Relative Error in Emittance Y: {rel_err_y:.4f}\n"
+                       f"Relative Error in Emittance Z: {rel_err_z:.4f}")
     fig.text(0.5, 0.05, annotation_text, ha='center', va='center', fontsize=12,
              bbox=dict(facecolor='white', alpha=0.8, edgecolor='black'))
     if title is not None:
@@ -69,73 +69,6 @@ import tempfile
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 
-# def plot_particle_groups_filename(pred_pg, target_pg, idx, error_type, results_folder,
-#                          mse_value, rel_err_x, rel_err_y, rel_err_z, filename, title=None):
-#     """
-#     Plots predicted and target ParticleGroups onto a single figure by:
-#     1. Using return_figure=True to get separate figures.
-#     2. Saving those figures as temporary images.
-#     3. Reading the images and displaying them with imshow on subplots.
-
-#     This avoids manipulating artists directly and guarantees that the plots look 
-#     the same as originally produced, just arranged in a grid.
-
-#     The final figure is saved using the provided filename.
-
-#     Args:
-#         pred_pg (ParticleGroup): Predicted ParticleGroup.
-#         target_pg (ParticleGroup): Target ParticleGroup.
-#         idx (int): Sample index.
-#         error_type (str): Error type (e.g., 'vis' or 'rollout').
-#         results_folder (str): Folder in which to save the final figure.
-#         mse_value (float): The MSE value to annotate.
-#         rel_err_x (float): Relative error for normalized emittance in x.
-#         rel_err_y (float): Relative error for normalized emittance in y.
-#         rel_err_z (float): Relative error for normalized emittance in z.
-#         filename (str): Full path (including filename) where the figure will be saved.
-#         title (str, optional): Optional title for the figure.
-#     """
-#     vars_list = [('x', 'px'), ('y', 'py'), ('z', 'pz')]
-#     fig, axes = plt.subplots(nrows=3, ncols=2, figsize=(12, 18))
-
-#     def save_plot_as_image(pgroup, xvar, pvar):
-#         fig_local = pgroup.plot(xvar, pvar, return_figure=True)
-#         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmpfile:
-#             temp_path = tmpfile.name
-#         fig_local.savefig(temp_path, dpi=150)
-#         plt.close(fig_local)
-#         return temp_path
-
-#     for row, (x_var, p_var) in enumerate(vars_list):
-#         # Predicted subplot (left column)
-#         ax_pred = axes[row, 0]
-#         pred_img_path = save_plot_as_image(pred_pg, x_var, pvar=p_var)
-#         pred_img = mpimg.imread(pred_img_path)
-#         ax_pred.imshow(pred_img)
-#         ax_pred.set_title(f'Sample {idx}: Predicted {x_var}-{p_var}')
-#         ax_pred.axis('off')
-#         os.remove(pred_img_path)
-
-#         # Target subplot (right column)
-#         ax_target = axes[row, 1]
-#         target_img_path = save_plot_as_image(target_pg, x_var, pvar=p_var)
-#         target_img = mpimg.imread(target_img_path)
-#         ax_target.imshow(target_img)
-#         ax_target.set_title(f'Sample {idx}: Target {x_var}-{p_var}')
-#         ax_target.axis('off')
-#         os.remove(target_img_path)
-
-#     annotation_text = (f"MSE: {mse_value:.4f}\n"
-#                        f"Rel. Error norm_emit_x: {rel_err_x:.4f}\n"
-#                        f"Rel. Error norm_emit_y: {rel_err_y:.4f}\n"
-#                        f"Rel. Error norm_emit_z: {rel_err_z:.4f}")
-#     fig.text(0.5, 0.05, annotation_text, ha='center', va='center', fontsize=12,
-#              bbox=dict(facecolor='white', alpha=0.8, edgecolor='black'))
-#     if title is not None:
-#         fig.text(0.5, 0.95, title, ha='center', va='center', fontsize=16, weight='bold')
-#     plt.tight_layout(rect=[0, 0.1, 1, 1])
-#     plt.savefig(filename)
-#     plt.close(fig)
 def plot_particle_groups_filename(pred_pg, target_pg, idx, 
                          mse_value, rel_err_x, rel_err_y, rel_err_z, filename, title=None):
     """
@@ -155,10 +88,10 @@ def plot_particle_groups_filename(pred_pg, target_pg, idx,
         idx (int): Sample index.
         error_type (str): Error type (e.g., 'vis' or 'rollout').
         results_folder (str): Folder in which to save the final figure.
-        mse_value (float): The MSE value to annotate.
-        rel_err_x (float): Relative error for normalized emittance in x.
-        rel_err_y (float): Relative error for normalized emittance in y.
-        rel_err_z (float): Relative error for normalized emittance in z.
+        mse_value (float): The MSE value to annotate (computed in normalized space).
+        rel_err_x (float): Relative Error in Emittance X (computed in original/physical units after inverse normalization).
+        rel_err_y (float): Relative Error in Emittance Y (computed in original/physical units after inverse normalization).
+        rel_err_z (float): Relative Error in Emittance Z (computed in original/physical units after inverse normalization).
         filename (str): Full path (including filename) where the figure will be saved.
         title (str, optional): Optional title for the figure.
     """
@@ -193,9 +126,9 @@ def plot_particle_groups_filename(pred_pg, target_pg, idx,
         os.remove(target_img_path)
 
     annotation_text = (f"MSE: {mse_value:.4f}\n"
-                       f"Rel. Error norm_emit_x: {rel_err_x:.4f}\n"
-                       f"Rel. Error norm_emit_y: {rel_err_y:.4f}\n"
-                       f"Rel. Error norm_emit_z: {rel_err_z:.4f}")
+                       f"Relative Error in Emittance X: {rel_err_x:.4f}\n"
+                       f"Relative Error in Emittance Y: {rel_err_y:.4f}\n"
+                       f"Relative Error in Emittance Z: {rel_err_z:.4f}")
     fig.text(0.5, 0.05, annotation_text, ha='center', va='center', fontsize=16,
              bbox=dict(facecolor='white', alpha=0.8, edgecolor='black'))
     if title is not None:
@@ -234,7 +167,7 @@ def transform_to_particle_group(data):
     return particle_group
 
 
-def compute_normalized_emittance_x(particle_group):
+def compute_emittance_x(particle_group):
     """
     Computes the normalized emittance in x direction for a ParticleGroup.
 
@@ -254,7 +187,7 @@ def compute_normalized_emittance_x(particle_group):
     return norm_emit_x
 
 
-def compute_normalized_emittance_y(particle_group):
+def compute_emittance_y(particle_group):
     """
     Computes the normalized emittance in y direction for a ParticleGroup.
     """
@@ -268,7 +201,7 @@ def compute_normalized_emittance_y(particle_group):
     return norm_emit_y
 
 
-def compute_normalized_emittance_z(particle_group):
+def compute_emittance_z(particle_group):
     """
     Computes the normalized emittance in z direction for a ParticleGroup.
     """
@@ -298,3 +231,68 @@ def inverse_normalize_features(features, scale):
     mean = scale[:, :6]
     std = scale[:, 6:]
     return features * std + mean
+
+def plot_particle_groups_threeway(input_pg, pred_pg, target_pg, idx, filename, title=None):
+    """
+    Plots input, predicted, and target ParticleGroups onto a single figure with 3 columns:
+    - Column 1: Input (start step)
+    - Column 2: Prediction (model output)
+    - Column 3: Reference (ground truth)
+    Each row is a phase space: (x, px), (y, py), (z, pz).
+    The final figure is saved using the provided filename.
+    Args:
+        input_pg (ParticleGroup): Input ParticleGroup (start step).
+        pred_pg (ParticleGroup): Predicted ParticleGroup (model output).
+        target_pg (ParticleGroup): Target ParticleGroup (ground truth).
+        idx (int): Sample index.
+        filename (str): Full path (including filename) where the figure will be saved.
+        title (str, optional): Optional title for the figure.
+    """
+    import matplotlib.pyplot as plt
+    import tempfile
+    import matplotlib.image as mpimg
+    import os
+    vars_list = [('x', 'px'), ('y', 'py'), ('z', 'pz')]
+    fig, axes = plt.subplots(nrows=3, ncols=3, figsize=(18, 18))
+
+    def save_plot_as_image(pgroup, x_var, p_var):
+        fig_local = pgroup.plot(x_var, p_var, return_figure=True)
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmpfile:
+            temp_path = tmpfile.name
+        fig_local.savefig(temp_path, dpi=150)
+        plt.close(fig_local)
+        return temp_path
+
+    for row, (x_var, p_var) in enumerate(vars_list):
+        # Input subplot (left column)
+        ax_input = axes[row, 0]
+        input_img_path = save_plot_as_image(input_pg, x_var=x_var, p_var=p_var)
+        input_img = mpimg.imread(input_img_path)
+        ax_input.imshow(input_img)
+        ax_input.set_title(f'Sample {idx}: Input {x_var}-{p_var}')
+        ax_input.axis('off')
+        os.remove(input_img_path)
+
+        # Predicted subplot (middle column)
+        ax_pred = axes[row, 1]
+        pred_img_path = save_plot_as_image(pred_pg, x_var=x_var, p_var=p_var)
+        pred_img = mpimg.imread(pred_img_path)
+        ax_pred.imshow(pred_img)
+        ax_pred.set_title(f'Sample {idx}: Predicted {x_var}-{p_var}')
+        ax_pred.axis('off')
+        os.remove(pred_img_path)
+
+        # Target subplot (right column)
+        ax_target = axes[row, 2]
+        target_img_path = save_plot_as_image(target_pg, x_var=x_var, p_var=p_var)
+        target_img = mpimg.imread(target_img_path)
+        ax_target.imshow(target_img)
+        ax_target.set_title(f'Sample {idx}: Reference {x_var}-{p_var}')
+        ax_target.axis('off')
+        os.remove(target_img_path)
+
+    if title is not None:
+        fig.text(0.5, 0.95, title, ha='center', va='center', fontsize=16, weight='bold')
+    plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+    plt.savefig(filename)
+    plt.close(fig)
